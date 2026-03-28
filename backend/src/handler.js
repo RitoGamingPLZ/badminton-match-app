@@ -12,31 +12,32 @@
  * GET    /rooms/:code                → getRoom
  * PATCH  /rooms/:code/format         → setFormat
  * POST   /rooms/:code/start          → startSession
- * PATCH  /rooms/:code/match          → editMatch  (edit any active/pending + regenerate)
- * POST   /rooms/:code/match/done     → markMatchDone
- * POST   /rooms/:code/match/skip     → skipMatch
+ * PATCH  /rooms/:code/match          → editMatch   (Command: EditMatchCommand)
+ * POST   /rooms/:code/match/done     → markMatchDone (Command: MatchDoneCommand)
+ * POST   /rooms/:code/match/skip     → skipMatch   (Command: SkipMatchCommand)
  * POST   /rooms/:code/undo           → undoLastOperation
  * POST   /rooms/:code/matches        → addMatches
  * GET    /rooms/:code/events         → SSE stream
  * OPTIONS *                          → CORS preflight
+ *
+ * Update operations follow the Command pattern:
+ *   1. Handler validates inputs and loads room.
+ *   2. Handler instantiates the appropriate Command.
+ *   3. runCommand() calls command.execute(room) → { patch, logEntry },
+ *      pushes an undo snapshot + log entry, then persists atomically.
  */
 
 import { randomUUID } from 'crypto';
 import * as dynamo from './dynamo.js';
-import {
-  generateMatches,
-  calculateInitialRounds,
-  regenerateUnpinnedMatches,
-} from './matchGen.js';
+import { generateMatches, calculateInitialRounds } from './matchGen.js';
+import { MatchDoneCommand, SkipMatchCommand, EditMatchCommand } from './commands.js';
 
 // ── Local-dev shim ────────────────────────────────────────────────────────────
 if (typeof awslambda === 'undefined') {
   console.warn('[shim] awslambda not found — using no-op shim (SSE will not stream)');
   globalThis.awslambda = {
     streamifyResponse: (fn) => fn,
-    HttpResponseStream: {
-      from(stream, _meta) { return stream; },
-    },
+    HttpResponseStream: { from(stream) { return stream; } },
   };
 }
 
@@ -50,12 +51,12 @@ const MAX_LOG  = 50;
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': ALLOWED_ORIGIN,
+  'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
   'Access-Control-Allow-Headers': 'Content-Type, X-Host-Token',
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
 };
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Response helpers ──────────────────────────────────────────────────────────
 
 function jsonResponse(stream, statusCode, body) {
   // eslint-disable-next-line no-undef
@@ -74,38 +75,71 @@ function err(stream, statusCode, message) {
 /** Strip internal fields before sending to clients. */
 function safeRoom(room) {
   return {
-    code: room.code,
-    version: room.version,
-    format: room.format,
-    started: room.started,
-    players: room.players.map(p => ({ name: p.name, gamesPlayed: p.gamesPlayed })),
-    matches: room.matches,
+    code:              room.code,
+    version:           room.version,
+    format:            room.format,
+    started:           room.started,
+    players:           room.players.map(p => ({ name: p.name, gamesPlayed: p.gamesPlayed })),
+    matches:           room.matches,
     currentMatchIndex: room.currentMatchIndex,
-    operationLog: room.operationLog || [],
-    canUndo: (room.undoStack || []).length > 0,
+    operationLog:      room.operationLog || [],
+    canUndo:           (room.undoStack || []).length > 0,
   };
 }
 
 function parseBody(event) {
-  try {
-    return JSON.parse(event.body || '{}');
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(event.body || '{}'); } catch { return {}; }
 }
 
 function hostToken(event) {
   return event.headers?.['x-host-token'] || parseBody(event).hostToken || '';
 }
 
-/** Push a snapshot onto the undo stack (capped at MAX_UNDO). */
+// ── Undo / log stack helpers ──────────────────────────────────────────────────
+
 function pushUndo(room, snapshot) {
   return [...(room.undoStack || []), snapshot].slice(-MAX_UNDO);
 }
 
-/** Push an operation log entry (capped at MAX_LOG). */
 function pushLog(room, entry) {
   return [...(room.operationLog || []), { ...entry, ts: new Date().toISOString() }].slice(-MAX_LOG);
+}
+
+// ── Command executor ──────────────────────────────────────────────────────────
+
+/**
+ * Execute a command against the given room state, persist the result,
+ * and write the JSON response.
+ *
+ * This is the single choke-point for all state-mutating operations,
+ * ensuring every command gets undo-snapshot + operation-log treatment.
+ */
+async function runCommand(code, command, room, expectedVersion, stream) {
+  // Snapshot current state before mutation for undo
+  const snapshot = {
+    matches:           room.matches,
+    players:           room.players,
+    currentMatchIndex: room.currentMatchIndex,
+  };
+
+  const { patch, logEntry } = command.execute(room);
+
+  const undoStack    = pushUndo(room, snapshot);
+  const operationLog = pushLog(room, logEntry);
+
+  try {
+    const updated = await dynamo.saveState(
+      code,
+      { ...patch, undoStack, operationLog },
+      expectedVersion,
+    );
+    jsonResponse(stream, 200, { room: safeRoom(updated) });
+  } catch (e) {
+    if (e.name === 'ConditionalCheckFailedException') {
+      return err(stream, 409, 'Version conflict — reload and retry');
+    }
+    throw e;
+  }
 }
 
 // ── Route handlers ────────────────────────────────────────────────────────────
@@ -117,8 +151,7 @@ async function handleCreateRoom(event, stream) {
   const validFormats = ['doubles', 'singles', 'both'];
   if (!validFormats.includes(format)) return err(stream, 400, 'Invalid format');
 
-  // Build full player list: host first, then additional (dedup by name)
-  const seen = new Set([playerName.trim().toLowerCase()]);
+  const seen    = new Set([playerName.trim().toLowerCase()]);
   const players = [{ name: playerName.trim(), gamesPlayed: 0 }];
   for (const n of additionalPlayers) {
     const trimmed = n?.trim();
@@ -127,25 +160,17 @@ async function handleCreateRoom(event, stream) {
     players.push({ name: trimmed, gamesPlayed: 0 });
   }
 
-  // Generate a unique 4-digit code
   let code, attempts = 0;
   do {
     code = String(Math.floor(1000 + Math.random() * 9000));
-    attempts++;
-    if (attempts > 20) return err(stream, 503, 'Could not generate unique room code');
+    if (++attempts > 20) return err(stream, 503, 'Could not generate unique room code');
   } while (await dynamo.getRoom(code));
 
   const token = randomUUID();
-  const room = await dynamo.createRoom({
-    code,
-    hostToken: token,
-    format,
-    started: false,
-    players,
-    matches: [],
-    currentMatchIndex: 0,
-    undoStack: [],
-    operationLog: [],
+  const room  = await dynamo.createRoom({
+    code, hostToken: token, format, started: false,
+    players, matches: [], currentMatchIndex: 0,
+    undoStack: [], operationLog: [],
   });
 
   jsonResponse(stream, 201, { hostToken: token, room: safeRoom(room) });
@@ -184,9 +209,8 @@ async function handleSetFormat(code, event, stream) {
   const validFormats = ['doubles', 'singles', 'both'];
   if (!validFormats.includes(body.format)) return err(stream, 400, 'Invalid format');
 
-  const expectedVersion = body.version ?? room.version;
   try {
-    const updated = await dynamo.setFormat(code, body.format, expectedVersion);
+    const updated = await dynamo.setFormat(code, body.format, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
     if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
@@ -205,19 +229,19 @@ async function handleStartSession(code, event, stream) {
   if (format !== 'singles' && players.length < 4) return err(stream, 400, 'Need at least 4 players for doubles');
   if (players.length < 2) return err(stream, 400, 'Need at least 2 players');
 
-  const totalRounds = calculateInitialRounds(players.length, format);
-  const matches = generateMatches(players, totalRounds, format, 1);
-  if (matches.length > 0) matches[0].status = 'active';
+  const matches = generateMatches(players, calculateInitialRounds(players.length, format), format, 1);
+  if (matches.length) matches[0].status = 'active';
 
-  const expectedVersion = body.version ?? room.version;
   try {
-    const updated = await dynamo.startSession(code, matches, expectedVersion);
+    const updated = await dynamo.startSession(code, matches, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
     if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
     throw e;
   }
 }
+
+// ── Command-pattern handlers ──────────────────────────────────────────────────
 
 async function handleMarkMatchDone(code, event, stream) {
   const body = parseBody(event);
@@ -229,52 +253,10 @@ async function handleMarkMatchDone(code, event, stream) {
   const { winner, version: expectedVersion = room.version } = body;
   if (winner !== 1 && winner !== 2) return err(stream, 400, 'winner must be 1 or 2');
 
-  const idx = room.currentMatchIndex;
-  const match = room.matches[idx];
+  const match = room.matches[room.currentMatchIndex];
   if (!match || match.status !== 'active') return err(stream, 409, 'No active match');
 
-  // Update match status
-  const updatedMatches = [...room.matches];
-  updatedMatches[idx] = { ...match, status: 'done', winner };
-
-  const nextIdx = idx + 1;
-  if (nextIdx < updatedMatches.length) {
-    updatedMatches[nextIdx] = { ...updatedMatches[nextIdx], status: 'active' };
-  }
-
-  // Increment gamesPlayed for participants
-  const participants = new Set([...match.team1, ...match.team2]);
-  const updatedPlayers = room.players.map(p =>
-    participants.has(p.name) ? { ...p, gamesPlayed: p.gamesPlayed + 1 } : p
-  );
-
-  const winnerNames = winner === 1 ? match.team1 : match.team2;
-  const loserNames  = winner === 1 ? match.team2 : match.team1;
-
-  const undoStack = pushUndo(room, {
-    matches: room.matches,
-    players: room.players,
-    currentMatchIndex: room.currentMatchIndex,
-  });
-  const operationLog = pushLog(room, {
-    type: 'match_done',
-    matchNum: idx + 1,
-    description: `Match ${idx + 1}: ${winnerNames.join(' & ')} beat ${loserNames.join(' & ')}`,
-  });
-
-  try {
-    const updated = await dynamo.saveState(code, {
-      matches: updatedMatches,
-      players: updatedPlayers,
-      currentMatchIndex: nextIdx,
-      undoStack,
-      operationLog,
-    }, expectedVersion);
-    jsonResponse(stream, 200, { room: safeRoom(updated) });
-  } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
-    throw e;
-  }
+  return runCommand(code, new MatchDoneCommand(winner), room, expectedVersion, stream);
 }
 
 async function handleSkipMatch(code, event, stream) {
@@ -284,75 +266,10 @@ async function handleSkipMatch(code, event, stream) {
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (!room.started) return err(stream, 409, 'Session not started');
 
-  const { version: expectedVersion = room.version } = body;
-
-  const idx = room.currentMatchIndex;
-  const match = room.matches[idx];
+  const match = room.matches[room.currentMatchIndex];
   if (!match || match.status !== 'active') return err(stream, 409, 'No active match');
 
-  const updatedMatches = [...room.matches];
-  updatedMatches[idx] = { ...match, status: 'skipped', winner: null };
-
-  const nextIdx = idx + 1;
-  if (nextIdx < updatedMatches.length) {
-    updatedMatches[nextIdx] = { ...updatedMatches[nextIdx], status: 'active' };
-  }
-
-  const undoStack = pushUndo(room, {
-    matches: room.matches,
-    players: room.players,
-    currentMatchIndex: room.currentMatchIndex,
-  });
-  const operationLog = pushLog(room, {
-    type: 'match_skipped',
-    matchNum: idx + 1,
-    description: `Match ${idx + 1}: skipped (${match.team1.join(' & ')} vs ${match.team2.join(' & ')})`,
-  });
-
-  try {
-    const updated = await dynamo.saveState(code, {
-      matches: updatedMatches,
-      currentMatchIndex: nextIdx,
-      undoStack,
-      operationLog,
-    }, expectedVersion);
-    jsonResponse(stream, 200, { room: safeRoom(updated) });
-  } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
-    throw e;
-  }
-}
-
-async function handleUndoLastOperation(code, event, stream) {
-  const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
-  if (!room) return err(stream, 404, 'Room not found');
-  if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
-  if (!room.started) return err(stream, 409, 'Session not started');
-
-  const { version: expectedVersion = room.version } = body;
-
-  const undoStack = room.undoStack || [];
-  if (undoStack.length === 0) return err(stream, 409, 'Nothing to undo');
-
-  const snapshot = undoStack[undoStack.length - 1];
-  const newUndoStack = undoStack.slice(0, -1);
-
-  const operationLog = (room.operationLog || []).slice(0, -1);
-
-  try {
-    const updated = await dynamo.saveState(code, {
-      matches: snapshot.matches,
-      players: snapshot.players,
-      currentMatchIndex: snapshot.currentMatchIndex,
-      undoStack: newUndoStack,
-      operationLog,
-    }, expectedVersion);
-    jsonResponse(stream, 200, { room: safeRoom(updated) });
-  } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
-    throw e;
-  }
+  return runCommand(code, new SkipMatchCommand(), room, body.version ?? room.version, stream);
 }
 
 async function handleEditMatch(code, event, stream) {
@@ -363,7 +280,6 @@ async function handleEditMatch(code, event, stream) {
   if (!room.started) return err(stream, 409, 'Session not started');
 
   const { team1, team2, version: expectedVersion = room.version } = body;
-  // matchIndex defaults to the current active match
   const matchIndex = body.matchIndex ?? room.currentMatchIndex;
 
   const match = room.matches[matchIndex];
@@ -372,8 +288,7 @@ async function handleEditMatch(code, event, stream) {
     return err(stream, 409, 'Cannot edit a completed or skipped match');
   }
 
-  const isDoubles = match.format === 'doubles';
-  const teamSize = isDoubles ? 2 : 1;
+  const teamSize = match.format === 'doubles' ? 2 : 1;
   if (!Array.isArray(team1) || team1.length !== teamSize) return err(stream, 400, `team1 must have ${teamSize} player(s)`);
   if (!Array.isArray(team2) || team2.length !== teamSize) return err(stream, 400, `team2 must have ${teamSize} player(s)`);
 
@@ -384,37 +299,33 @@ async function handleEditMatch(code, event, stream) {
   }
   if (new Set(submitted).size !== submitted.length) return err(stream, 400, 'Duplicate players in teams');
 
-  // Mark this match as pinned (manually edited — survives future regeneration)
-  const updatedMatches = [...room.matches];
-  updatedMatches[matchIndex] = { ...match, team1, team2, pinned: true };
+  return runCommand(code, new EditMatchCommand(matchIndex, team1, team2), room, expectedVersion, stream);
+}
 
-  // Regenerate non-pinned pending matches after this index
-  const newPending = regenerateUnpinnedMatches(
-    updatedMatches, matchIndex, room.players, match.format
-  );
+// ── Undo (not a Command — restores a previous snapshot directly) ──────────────
 
-  const finalMatches = [
-    ...updatedMatches.slice(0, matchIndex + 1),
-    ...newPending,
-  ];
+async function handleUndoLastOperation(code, event, stream) {
+  const body = parseBody(event);
+  const room = await dynamo.getRoom(code);
+  if (!room) return err(stream, 404, 'Room not found');
+  if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
+  if (!room.started) return err(stream, 409, 'Session not started');
 
-  const undoStack = pushUndo(room, {
-    matches: room.matches,
-    players: room.players,
-    currentMatchIndex: room.currentMatchIndex,
-  });
-  const operationLog = pushLog(room, {
-    type: 'match_edited',
-    matchNum: matchIndex + 1,
-    description: `Match ${matchIndex + 1} edited: ${team1.join(' & ')} vs ${team2.join(' & ')}`,
-  });
+  const undoStack = room.undoStack || [];
+  if (!undoStack.length) return err(stream, 409, 'Nothing to undo');
+
+  const snapshot     = undoStack[undoStack.length - 1];
+  const newUndoStack = undoStack.slice(0, -1);
+  const operationLog = (room.operationLog || []).slice(0, -1);
 
   try {
     const updated = await dynamo.saveState(code, {
-      matches: finalMatches,
-      undoStack,
+      matches:           snapshot.matches,
+      players:           snapshot.players,
+      currentMatchIndex: snapshot.currentMatchIndex,
+      undoStack:         newUndoStack,
       operationLog,
-    }, expectedVersion);
+    }, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
     if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
@@ -428,13 +339,12 @@ async function handleAddMatches(code, event, stream) {
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
 
-  const count = Math.min(body.count || 5, 20);
-  const startId = room.matches.length + 1;
+  const count      = Math.min(body.count || 5, 20);
+  const startId    = room.matches.length + 1;
   const newMatches = generateMatches(room.players, count, room.format, startId);
 
-  const { version: expectedVersion = room.version } = body;
   try {
-    const updated = await dynamo.appendMatches(code, newMatches, expectedVersion);
+    const updated = await dynamo.appendMatches(code, newMatches, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
     if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
@@ -462,23 +372,16 @@ async function handleSSE(code, event, responseStream) {
     },
   });
 
-  const write = (data) => {
-    try { stream.write(data); } catch { /* client disconnected */ }
-  };
-
+  const write = data => { try { stream.write(data); } catch { /* client disconnected */ } };
   write(`: connected to room ${code}\n\n`);
 
   const startTime = Date.now();
-  let lastPing = startTime;
+  let lastPing    = startTime;
 
   try {
     while (Date.now() - startTime < SSE_MAX_MS) {
       const room = await dynamo.getRoom(code);
-
-      if (!room) {
-        write('event: error\ndata: {"message":"Room not found"}\n\n');
-        break;
-      }
+      if (!room) { write('event: error\ndata: {"message":"Room not found"}\n\n'); break; }
 
       if (room.version > clientVersion) {
         clientVersion = room.version;
@@ -486,10 +389,7 @@ async function handleSSE(code, event, responseStream) {
       }
 
       const now = Date.now();
-      if (now - lastPing >= SSE_PING_MS) {
-        write(': ping\n\n');
-        lastPing = now;
-      }
+      if (now - lastPing >= SSE_PING_MS) { write(': ping\n\n'); lastPing = now; }
 
       await new Promise(resolve => setTimeout(resolve, SSE_POLL_MS));
     }
@@ -505,57 +405,33 @@ async function handleSSE(code, event, responseStream) {
 
 // eslint-disable-next-line no-undef
 export const handler = awslambda.streamifyResponse(async (event, responseStream) => {
-  const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
+  const method  = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
   const rawPath = event.rawPath ?? event.path ?? '/';
-  const parts = rawPath.split('/').filter(Boolean);
+  const parts   = rawPath.split('/').filter(Boolean);
 
   if (method === 'OPTIONS') {
     // eslint-disable-next-line no-undef
-    const s = awslambda.HttpResponseStream.from(responseStream, {
-      statusCode: 204,
-      headers: corsHeaders,
-    });
+    const s = awslambda.HttpResponseStream.from(responseStream, { statusCode: 204, headers: corsHeaders });
     s.end();
     return;
   }
 
   try {
-    if (method === 'POST' && parts.length === 1 && parts[0] === 'rooms') {
+    if (method === 'POST' && parts.length === 1 && parts[0] === 'rooms')
       return await handleCreateRoom(event, responseStream);
-    }
 
     const code = parts[1];
 
-    if (method === 'GET' && parts.length === 2) {
-      return await handleGetRoom(code, responseStream);
-    }
-    if (method === 'GET' && parts[2] === 'events') {
-      return await handleSSE(code, event, responseStream);
-    }
-    if (method === 'POST' && parts[2] === 'join') {
-      return await handleJoinRoom(code, event, responseStream);
-    }
-    if (method === 'PATCH' && parts[2] === 'format') {
-      return await handleSetFormat(code, event, responseStream);
-    }
-    if (method === 'POST' && parts[2] === 'start') {
-      return await handleStartSession(code, event, responseStream);
-    }
-    if (method === 'POST' && parts[2] === 'match' && parts[3] === 'done') {
-      return await handleMarkMatchDone(code, event, responseStream);
-    }
-    if (method === 'POST' && parts[2] === 'match' && parts[3] === 'skip') {
-      return await handleSkipMatch(code, event, responseStream);
-    }
-    if (method === 'POST' && parts[2] === 'undo') {
-      return await handleUndoLastOperation(code, event, responseStream);
-    }
-    if (method === 'PATCH' && parts[2] === 'match' && !parts[3]) {
-      return await handleEditMatch(code, event, responseStream);
-    }
-    if (method === 'POST' && parts[2] === 'matches') {
-      return await handleAddMatches(code, event, responseStream);
-    }
+    if (method === 'GET'   && parts.length === 2)                          return await handleGetRoom(code, responseStream);
+    if (method === 'GET'   && parts[2] === 'events')                       return await handleSSE(code, event, responseStream);
+    if (method === 'POST'  && parts[2] === 'join')                         return await handleJoinRoom(code, event, responseStream);
+    if (method === 'PATCH' && parts[2] === 'format')                       return await handleSetFormat(code, event, responseStream);
+    if (method === 'POST'  && parts[2] === 'start')                        return await handleStartSession(code, event, responseStream);
+    if (method === 'POST'  && parts[2] === 'match' && parts[3] === 'done') return await handleMarkMatchDone(code, event, responseStream);
+    if (method === 'POST'  && parts[2] === 'match' && parts[3] === 'skip') return await handleSkipMatch(code, event, responseStream);
+    if (method === 'POST'  && parts[2] === 'undo')                         return await handleUndoLastOperation(code, event, responseStream);
+    if (method === 'PATCH' && parts[2] === 'match' && !parts[3])           return await handleEditMatch(code, event, responseStream);
+    if (method === 'POST'  && parts[2] === 'matches')                      return await handleAddMatches(code, event, responseStream);
 
     err(responseStream, 404, 'Not found');
   } catch (error) {
