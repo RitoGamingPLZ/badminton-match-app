@@ -28,6 +28,25 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source for hot-reloading; keep container's node_modules intact
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+    environment:
+      # Vite proxy target — points to the backend service inside Docker network
+      API_TARGET: http://backend:3001
+    depends_on:
+      - backend
+    restart: unless-stopped
+
   # ── MongoDB ────────────────────────────────────────────────────────────────
   mongo:
     image: mongo:7
