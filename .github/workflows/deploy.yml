@@ -18,7 +18,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --workspace=backend
+        run: npm ci
 
       - name: Build Lambda zip
         run: npm run build --workspace=backend
@@ -43,7 +43,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --workspace=frontend
+        run: npm ci
 
       - name: Build
         working-directory: frontend
