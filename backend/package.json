@@ -5,11 +5,12 @@
   "description": "AWS Lambda backend for Badminton Match App",
   "scripts": {
     "build": "node build.mjs",
-    "dev": "sam local start-api --port 3001 --warm-containers EAGER"
+    "dev": "node src/server.js"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.540.0",
-    "@aws-sdk/lib-dynamodb": "^3.540.0"
+    "@aws-sdk/lib-dynamodb": "^3.540.0",
+    "mongodb": "^6.5.0"
   },
   "devDependencies": {
     "esbuild": "^0.20.0"

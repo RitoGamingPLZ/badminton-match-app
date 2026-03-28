@@ -28,9 +28,11 @@
  */
 
 import { randomUUID } from 'crypto';
-import * as dynamo from './dynamo.js';
+import { getRepository, VersionConflictError } from './db/index.js';
 import { generateMatches, calculateInitialRounds } from './matchGen.js';
 import { MatchDoneCommand, SkipMatchCommand, EditMatchCommand } from './commands.js';
+
+const db = getRepository();
 
 // ── Local-dev shim ────────────────────────────────────────────────────────────
 if (typeof awslambda === 'undefined') {
@@ -128,14 +130,14 @@ async function runCommand(code, command, room, expectedVersion, stream) {
   const operationLog = pushLog(room, logEntry);
 
   try {
-    const updated = await dynamo.saveState(
+    const updated = await db.saveState(
       code,
       { ...patch, undoStack, operationLog },
       expectedVersion,
     );
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') {
+    if (e instanceof VersionConflictError) {
       return err(stream, 409, 'Version conflict — reload and retry');
     }
     throw e;
@@ -164,10 +166,10 @@ async function handleCreateRoom(event, stream) {
   do {
     code = String(Math.floor(1000 + Math.random() * 9000));
     if (++attempts > 20) return err(stream, 503, 'Could not generate unique room code');
-  } while (await dynamo.getRoom(code));
+  } while (await db.getRoom(code));
 
   const token = randomUUID();
-  const room  = await dynamo.createRoom({
+  const room  = await db.createRoom({
     code, hostToken: token, format, started: false,
     players, matches: [], currentMatchIndex: 0,
     undoStack: [], operationLog: [],
@@ -180,7 +182,7 @@ async function handleJoinRoom(code, event, stream) {
   const { playerName } = parseBody(event);
   if (!playerName?.trim()) return err(stream, 400, 'playerName is required');
 
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.started) return err(stream, 409, 'Session already started');
 
@@ -189,19 +191,19 @@ async function handleJoinRoom(code, event, stream) {
   );
   if (nameTaken) return err(stream, 409, 'Name already taken in this room');
 
-  const updated = await dynamo.addPlayer(code, { name: playerName.trim(), gamesPlayed: 0 }, room.version);
+  const updated = await db.addPlayer(code, { name: playerName.trim(), gamesPlayed: 0 }, room.version);
   jsonResponse(stream, 200, { room: safeRoom(updated) });
 }
 
 async function handleGetRoom(code, stream) {
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   jsonResponse(stream, 200, { room: safeRoom(room) });
 }
 
 async function handleSetFormat(code, event, stream) {
   const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (room.started) return err(stream, 409, 'Session already started');
@@ -210,17 +212,17 @@ async function handleSetFormat(code, event, stream) {
   if (!validFormats.includes(body.format)) return err(stream, 400, 'Invalid format');
 
   try {
-    const updated = await dynamo.setFormat(code, body.format, body.version ?? room.version);
+    const updated = await db.setFormat(code, body.format, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
+    if (e instanceof VersionConflictError) return err(stream, 409, 'Version conflict — reload and retry');
     throw e;
   }
 }
 
 async function handleStartSession(code, event, stream) {
   const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (room.started) return err(stream, 409, 'Session already started');
@@ -233,10 +235,10 @@ async function handleStartSession(code, event, stream) {
   if (matches.length) matches[0].status = 'active';
 
   try {
-    const updated = await dynamo.startSession(code, matches, body.version ?? room.version);
+    const updated = await db.startSession(code, matches, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
+    if (e instanceof VersionConflictError) return err(stream, 409, 'Version conflict — reload and retry');
     throw e;
   }
 }
@@ -245,7 +247,7 @@ async function handleStartSession(code, event, stream) {
 
 async function handleMarkMatchDone(code, event, stream) {
   const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (!room.started) return err(stream, 409, 'Session not started');
@@ -261,7 +263,7 @@ async function handleMarkMatchDone(code, event, stream) {
 
 async function handleSkipMatch(code, event, stream) {
   const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (!room.started) return err(stream, 409, 'Session not started');
@@ -274,7 +276,7 @@ async function handleSkipMatch(code, event, stream) {
 
 async function handleEditMatch(code, event, stream) {
   const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (!room.started) return err(stream, 409, 'Session not started');
@@ -306,7 +308,7 @@ async function handleEditMatch(code, event, stream) {
 
 async function handleUndoLastOperation(code, event, stream) {
   const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (!room.started) return err(stream, 409, 'Session not started');
@@ -319,7 +321,7 @@ async function handleUndoLastOperation(code, event, stream) {
   const operationLog = (room.operationLog || []).slice(0, -1);
 
   try {
-    const updated = await dynamo.saveState(code, {
+    const updated = await db.saveState(code, {
       matches:           snapshot.matches,
       players:           snapshot.players,
       currentMatchIndex: snapshot.currentMatchIndex,
@@ -328,14 +330,14 @@ async function handleUndoLastOperation(code, event, stream) {
     }, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
+    if (e instanceof VersionConflictError) return err(stream, 409, 'Version conflict — reload and retry');
     throw e;
   }
 }
 
 async function handleAddMatches(code, event, stream) {
   const body = parseBody(event);
-  const room = await dynamo.getRoom(code);
+  const room = await db.getRoom(code);
   if (!room) return err(stream, 404, 'Room not found');
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
 
@@ -344,10 +346,10 @@ async function handleAddMatches(code, event, stream) {
   const newMatches = generateMatches(room.players, count, room.format, startId);
 
   try {
-    const updated = await dynamo.appendMatches(code, newMatches, body.version ?? room.version);
+    const updated = await db.appendMatches(code, newMatches, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
-    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
+    if (e instanceof VersionConflictError) return err(stream, 409, 'Version conflict — reload and retry');
     throw e;
   }
 }
@@ -380,7 +382,7 @@ async function handleSSE(code, event, responseStream) {
 
   try {
     while (Date.now() - startTime < SSE_MAX_MS) {
-      const room = await dynamo.getRoom(code);
+      const room = await db.getRoom(code);
       if (!room) { write('event: error\ndata: {"message":"Room not found"}\n\n'); break; }
 
       if (room.version > clientVersion) {
