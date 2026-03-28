@@ -1,26 +1,48 @@
-# 🏸 Badminton Match App
+# Badminton Match App
 
-A real-time badminton match scheduler for friend groups. Create a room, share the 4-digit code, everyone joins on their own phone, and the app handles the rest — fair match generation, live updates, and result tracking.
+A real-time badminton match scheduler for friend groups. Create a room, share the 4-digit code, everyone joins on their own phone, and the app handles the rest — fair match generation, live updates, result tracking, undo, and edit.
 
 ## Monorepo structure
 
 ```
 badminton-match-app/
-├── backend/          AWS Lambda + DynamoDB (SSE + REST API)
+├── frontend/               Vue 3 + Vite + Tailwind CSS v4 SPA
+│   ├── src/
+│   │   ├── views/          HomeView, LobbyView, SessionView, EditMatchesView
+│   │   ├── store/room.js   Pinia store — full app state + API actions
+│   │   ├── api.js          REST + SSE client
+│   │   └── style.css       Tailwind import + shared transitions
+│   ├── Dockerfile          Local dev container (vite dev)
+│   └── README.md
+│
+├── backend/                Node.js REST + SSE API
 │   ├── src/
 │   │   ├── handler.js      All routes — REST + SSE streaming
-│   │   ├── matchGen.js     Fair match generation algorithm
-│   │   └── dynamo.js       DynamoDB helpers (optimistic locking)
-│   ├── template.yaml       AWS SAM deployment template
-│   └── package.json
-├── frontend/         Vue 3 + Vite SPA
-│   ├── src/
-│   │   ├── api.js          REST + SSE client
-│   │   ├── store/room.js   Pinia store (state + actions)
-│   │   ├── views/          HomeView, CreateView, JoinView, LobbyView, SessionView
-│   │   └── components/     FormatPicker, MatchCourt, EditMatchModal
-│   └── package.json
-└── package.json      Workspace root
+│   │   ├── server.js       Local HTTP server (no Lambda runtime needed)
+│   │   ├── commands.js     Command pattern — MatchDone, Skip, EditMatch
+│   │   ├── matchGen.js     Fair match generation (MinHeap, O(log n))
+│   │   └── db/
+│   │       ├── index.js            Repository factory (DB_DRIVER env var)
+│   │       ├── DynamoRepository.js AWS DynamoDB (production / Lambda)
+│   │       ├── MongoRepository.js  MongoDB (docker-compose / self-hosted)
+│   │       └── InMemoryRepository.js Map-backed (tests / zero-dep local)
+│   ├── Dockerfile          Local dev container (node server.js)
+│   └── README.md
+│
+├── infra/                  Terraform — AWS Lambda + DynamoDB + S3
+│   ├── main.tf             Provider + remote state (S3 backend)
+│   ├── lambda.tf           Lambda arm64, IAM, Function URL (RESPONSE_STREAM)
+│   ├── dynamodb.tf         BadmintonRooms table, PAY_PER_REQUEST, TTL
+│   ├── s3.tf               Frontend static hosting bucket + CORS
+│   ├── variables.tf
+│   └── outputs.tf
+│
+├── .github/workflows/
+│   ├── ci.yml              Build + terraform validate/fmt on PRs
+│   └── deploy.yml          Build → terraform apply → S3 sync on merge to main
+│
+├── docker-compose.yml      Full local stack (frontend + backend + MongoDB)
+└── package.json            npm workspace root
 ```
 
 ---
@@ -29,143 +51,151 @@ badminton-match-app/
 
 | Feature | Details |
 |---|---|
-| **Create room** | Host gets a 4-digit code instantly |
-| **Join room** | Players join on their own phones |
-| **Doubles & Singles** | Supports 2v2, 1v1, or mixed |
-| **Fair scheduling** | Players with fewest games are picked first; teams rotate to avoid same-partner repetition |
-| **Edit current match** | Host can swap players in/out mid-session; pending schedule regenerates automatically preserving fairness |
-| **Live updates** | SSE (Server-Sent Events) — no WebSockets needed |
-| **Tab resync** | GET /rooms/:code on tab focus catches up missed events |
-| **Version control** | Optimistic locking via `version` attribute — no race conditions |
-| **Auto-expiry** | Rooms auto-delete from DynamoDB after 24 hours (TTL) |
-
----
-
-## Deployment
-
-### Prerequisites
-
-```bash
-# AWS CLI
-brew install awscli   # macOS
-aws configure         # set your region + credentials
-
-# AWS SAM CLI
-brew install aws-sam-cli
-
-# Node 20+
-node --version
-```
-
-### 1 — Deploy the backend
-
-```bash
-cd backend
-npm install
-sam build
-sam deploy --guided
-# Choose a stack name, region, and accept defaults.
-# Note the ApiUrl from the Outputs section.
-```
-
-After deployment, CloudFormation prints:
-
-```
-ApiUrl = https://xxxxxxxxxxxx.lambda-url.ap-southeast-1.on.aws/
-```
-
-### 2 — Configure the frontend
-
-```bash
-cd frontend
-cp .env.example .env.local
-# Edit .env.local and set:
-#   VITE_API_BASE=https://xxxxxxxxxxxx.lambda-url.ap-southeast-1.on.aws
-```
-
-### 3 — Build and deploy the frontend
-
-**Option A — Vercel (recommended, free)**
-```bash
-npm i -g vercel
-cd frontend
-vercel deploy --prod
-```
-
-**Option B — Netlify**
-```bash
-npm i -g netlify-cli
-cd frontend
-npm run build
-netlify deploy --prod --dir=dist
-```
-
-**Option C — AWS S3 + CloudFront**
-```bash
-cd frontend
-npm run build
-aws s3 sync dist/ s3://your-bucket-name --delete
-```
-
-### 4 — Set CORS (production)
-
-In `backend/template.yaml`, change the `AllowedOrigin` parameter to your frontend URL:
-
-```bash
-sam deploy --parameter-overrides AllowedOrigin=https://your-app.vercel.app
-```
+| **Create & join** | Host creates a room with a 4-digit code; players join on their own phones |
+| **Doubles / Singles / Both** | Format chosen in lobby; generates a full fair schedule |
+| **Fair scheduling** | MinHeap-based O(log n) selection — players with fewest games go first; team splits minimise repeated pairings |
+| **Skip match** | Skip the active match without awarding points |
+| **Undo** | Undo the last operation (capped at 10 levels) |
+| **Edit any match** | Host can change teams on any pending match; edited matches are pinned and survive schedule regeneration |
+| **Operation history** | Full log of match results, skips and edits (last 50) |
+| **Live updates** | SSE (Server-Sent Events) — every client auto-syncs on every version change |
+| **Optimistic locking** | All writes carry a `version`; conflicts return HTTP 409 |
+| **Auto-expiry** | Rooms expire after 24 hours (DynamoDB TTL / MongoDB TTL index) |
+| **DB-agnostic backend** | Swap between DynamoDB, MongoDB, or in-memory via `DB_DRIVER` env var |
 
 ---
 
 ## Local development
 
-You need AWS credentials pointing to a real DynamoDB table **or** use DynamoDB Local.
+The fastest way to run the full stack locally is Docker Compose.
+
+### With Docker (recommended)
 
 ```bash
-# Terminal 1 — backend (SAM local)
-cd backend
-npm install
-sam build
-sam local start-api --port 3001 --warm-containers EAGER
-
-# Terminal 2 — frontend (Vite dev server)
-cd frontend
-npm install
-cp .env.example .env.local
-# Leave VITE_API_BASE unset — Vite proxies /api/* → localhost:3001
-npm run dev
+# Clone and start everything — frontend + backend + MongoDB
+git clone https://github.com/RitoGamingPLZ/badminton-match-app.git
+cd badminton-match-app
+docker compose up
 ```
 
-Open http://localhost:5173 — the Vite proxy forwards API calls to SAM local.
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:5173 |
+| Backend API | http://localhost:3001 |
+| MongoDB | localhost:27017 |
+
+Source files are bind-mounted into the frontend container so hot-module replacement works without rebuilding the image.
+
+#### Switch to DynamoDB Local
+
+```bash
+DB_DRIVER=dynamodb docker compose --profile dynamodb up
+```
+
+This starts DynamoDB Local on port 8000 and automatically creates the `BadmintonRooms` table.
+
+#### In-memory (no database)
+
+```bash
+DB_DRIVER=memory docker compose up backend
+```
+
+State lives in process memory and resets on restart — useful for quick experiments.
+
+---
+
+### Without Docker
+
+```bash
+npm install          # installs all workspaces
+
+# Backend — pick a driver:
+DB_DRIVER=memory npm run dev --workspace=backend          # no DB needed
+DB_DRIVER=mongodb npm run dev --workspace=backend         # local MongoDB on 27017
+DYNAMODB_ENDPOINT=http://localhost:8000 \
+  DB_DRIVER=dynamodb npm run dev --workspace=backend      # DynamoDB Local
+
+# Frontend (separate terminal)
+npm run dev --workspace=frontend
+```
+
+Open http://localhost:5173. The Vite dev server proxies `/api/*` → `http://localhost:3001`.
+
+---
+
+## Deployment (AWS via Terraform)
+
+Infrastructure is managed with Terraform in `infra/`. CI/CD is handled by GitHub Actions.
+
+### First-time setup
+
+1. **Bootstrap remote state** — create an S3 bucket and DynamoDB lock table manually, then uncomment the `backend "s3"` block in `infra/main.tf`.
+
+2. **Add GitHub Actions secrets:**
+
+| Secret | Description |
+|---|---|
+| `AWS_ACCESS_KEY_ID` | IAM credentials with Lambda + DynamoDB + S3 access |
+| `AWS_SECRET_ACCESS_KEY` | Corresponding secret key |
+| `AWS_REGION` | Target region (e.g. `ap-southeast-1`) |
+| `VITE_API_BASE` | Lambda Function URL (set after first deploy) |
+| `ALLOWED_ORIGIN` | Frontend URL for CORS (e.g. `https://your-app.com`) |
+
+3. **Push to `main`** — the deploy workflow runs automatically:
+   - Builds the Lambda zip (esbuild) and the frontend (Vite)
+   - Runs `terraform apply` (Lambda + DynamoDB + S3)
+   - Syncs the frontend build to S3
+
+### CI pipeline (on every PR)
+
+- Frontend: `vite build`
+- Backend: esbuild Lambda bundle
+- Terraform: `terraform validate` + `terraform fmt -check -recursive`
 
 ---
 
 ## Architecture
 
-### Real-time: SSE over Lambda Streaming
+### Request flow
 
 ```
-Phone A  →  POST /rooms/1234/match/done  →  Lambda  →  DynamoDB (version: 5 → 6)
-Phone B  ←  SSE: version 6 room state   ←  Lambda polls DynamoDB every 2s
+Browser  →  POST /rooms/1234/match/done  →  Lambda / Node server
+                                         →  DB write (version: 5 → 6)
+Browser  ←  SSE: room state v6           ←  SSE handler polls DB every 2s
 ```
 
-- Each client holds an open `EventSource` connection to `GET /rooms/:code/events`
-- The SSE Lambda polls DynamoDB every 2 seconds and streams a `data:` event when the `version` increments
-- If a tab is backgrounded and the SSE drops, a `GET /rooms/:code` REST call on re-focus catches up
-- Lambda Function URLs with `InvokeMode: RESPONSE_STREAM` allow connections up to 15 minutes
+### Real-time (SSE)
 
-### Optimistic locking
+- Each client opens an `EventSource` to `GET /rooms/:code/events`
+- The SSE handler polls the database every 2 seconds and streams a `data:` event whenever the room `version` increases
+- If a tab is backgrounded and SSE drops, a `GET /rooms/:code` on re-focus catches up
+- Lambda Function URL with `InvokeMode: RESPONSE_STREAM` supports connections up to 15 minutes
 
-Every mutation:
-1. Reads the current `version`
-2. Sends `version` with the request body
-3. Lambda uses DynamoDB `ConditionExpression: version = :expected` + atomically increments
-4. On `ConditionalCheckFailedException` (409) → client re-fetches and can retry
+### Command pattern
+
+All state-mutating operations are Command objects (`backend/src/commands.js`):
+
+```
+command.execute(room) → { patch, logEntry }
+```
+
+A central `runCommand()` in `handler.js` handles undo-snapshot and operation-log bookkeeping for every command uniformly. Undo restores a full state snapshot (not re-execution).
+
+### Database abstraction
+
+`DB_DRIVER` env var selects the driver at startup:
+
+| Driver | Class | Use case |
+|---|---|---|
+| `dynamodb` (default) | `DynamoRepository` | Lambda / production |
+| `mongodb` | `MongoRepository` | Docker Compose / self-hosted |
+| `memory` | `InMemoryRepository` | Tests / zero-dependency local |
+
+All drivers implement the same interface and normalise version-conflict errors to `VersionConflictError`.
 
 ### Match generation fairness
 
-**Doubles (2v2):** For each round, picks the 4 players with fewest `gamesPlayed`. Among the 3 possible ways to split 4 into 2 teams, picks the split with fewest repeated partner pairings.
-
-**Singles (1v1):** Pairs players who have played the fewest games and haven't faced each other yet.
-
-**Edit match:** Editing the active match updates `team1`/`team2`, then regenerates all `pending` matches using the current `gamesPlayed` counts as the baseline — so fairness is preserved going forward.
+- **MinHeap** keeps players sorted by `gamesPlayed` in O(log n)
+- **Doubles:** picks 4 lowest-count players, evaluates all 3 possible 2v2 splits, chooses the split with fewest repeated partner pairings
+- **Singles:** pulls top 8 candidates, finds the pair minimising `(matchup_repetitions × 100) + combined_gamesPlayed`
+- **Pinned matches** survive regeneration — `regenerateUnpinnedMatches()` preserves manually edited matches in-place and inflates virtual gamesPlayed for players locked into pinned slots
