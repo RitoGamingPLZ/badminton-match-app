@@ -27,17 +27,14 @@ async function request(method, path, body, hostToken) {
 
 export const api = {
   // Room lifecycle
-  createRoom: (playerName, format, additionalPlayers = []) =>
-    request('POST', '/rooms', { playerName, format, additionalPlayers }),
+  createRoom: (playerName, additionalPlayers = []) =>
+    request('POST', '/rooms', { playerName, additionalPlayers }),
 
   joinRoom: (code, playerName) =>
     request('POST', `/rooms/${code}/join`, { playerName }),
 
   getRoom: (code) =>
     request('GET', `/rooms/${code}`),
-
-  setFormat: (code, format, version, hostToken) =>
-    request('PATCH', `/rooms/${code}/format`, { format, version }, hostToken),
 
   startSession: (code, version, hostToken) =>
     request('POST', `/rooms/${code}/start`, { version }, hostToken),

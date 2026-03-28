@@ -104,9 +104,7 @@ export class EditMatchCommand {
     updatedMatches[matchIndex] = { ...match, team1, team2, pinned: true };
 
     // Regenerate non-pinned pending matches after this index
-    const newPending = regenerateUnpinnedMatches(
-      updatedMatches, matchIndex, room.players, match.format
-    );
+    const newPending = regenerateUnpinnedMatches(updatedMatches, matchIndex, room.players);
 
     const finalMatches = [
       ...updatedMatches.slice(0, matchIndex + 1),

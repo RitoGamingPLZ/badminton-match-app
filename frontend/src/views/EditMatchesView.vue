@@ -120,7 +120,7 @@ const editTeam1 = ref([])
 const editTeam2 = ref([])
 const saving = ref(false)
 
-const teamSize = m => m.format === 'singles' ? 1 : 2
+const teamSize = () => 2
 
 function toggleExpand(idx) {
   if (expandedIndex.value === idx) { expandedIndex.value = null; return }

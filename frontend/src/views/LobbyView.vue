@@ -33,10 +33,6 @@
 
       <!-- Host controls -->
       <template v-if="store.isHost">
-        <div class="mt-4">
-          <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mb-1.5">Match Format</div>
-          <FormatPicker :model-value="store.room?.format" @update:model-value="store.setFormat($event)" />
-        </div>
         <button
           class="mt-2 block w-full py-3.5 px-5 bg-amber-400 text-white rounded-xl font-semibold text-base cursor-pointer hover:bg-amber-500 active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
           :disabled="store.loading || !canStart"
@@ -45,7 +41,7 @@
           {{ store.loading ? 'Generating…' : 'Generate Matches' }}
         </button>
         <p v-if="!canStart" class="text-[0.78rem] text-slate-500 mt-2 text-center">
-          Need at least {{ minPlayers }} players for {{ store.room?.format }}
+          Need at least 4 players for doubles
         </p>
       </template>
 
@@ -67,10 +63,8 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoomStore } from '../store/room.js'
-import FormatPicker from '../components/FormatPicker.vue'
 import { avatarColor } from '../utils.js'
 
-const store = useRoomStore()
-const minPlayers = computed(() => store.room?.format === 'singles' ? 2 : 4)
-const canStart   = computed(() => (store.room?.players.length ?? 0) >= minPlayers.value)
+const store    = useRoomStore()
+const canStart = computed(() => (store.room?.players.length ?? 0) >= 4)
 </script>

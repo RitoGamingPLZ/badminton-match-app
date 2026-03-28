@@ -15,11 +15,6 @@
         />
       </div>
 
-      <div class="mb-3.5">
-        <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Match Format</label>
-      </div>
-      <FormatPicker v-model="format" />
-
       <!-- Extra players -->
       <div class="mb-2">
         <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">
@@ -106,15 +101,13 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 import { useRoomStore } from '../store/room.js'
-import FormatPicker from '../components/FormatPicker.vue'
 
 const store = useRoomStore()
 
-const hostName    = ref('')
-const format      = ref('doubles')
+const hostName     = ref('')
 const extraPlayers = ref([])
-const joinCode    = ref('')
-const joinName    = ref('')
+const joinCode     = ref('')
+const joinName     = ref('')
 
 function addPlayerField() {
   extraPlayers.value.push('')
@@ -131,7 +124,6 @@ function submitCreate() {
   if (!hostName.value.trim()) return
   store.createRoom(
     hostName.value.trim(),
-    format.value,
     extraPlayers.value.map(n => n.trim()).filter(Boolean),
   )
 }

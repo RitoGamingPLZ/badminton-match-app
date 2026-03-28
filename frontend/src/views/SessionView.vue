@@ -26,9 +26,7 @@
           </div>
         </div>
         <div class="flex items-center gap-1.5">
-          <span class="text-[0.7rem] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-500">
-            {{ store.currentMatch.format === 'singles' ? '1v1' : '2v2' }}
-          </span>
+          <span class="text-[0.7rem] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-500">2v2</span>
           <span v-if="store.currentMatch.pinned" title="Manually set">📌</span>
         </div>
       </div>
@@ -126,7 +124,6 @@
             <span class="text-slate-400 text-[0.75rem]">vs</span>
             {{ m.team2.join(' & ') }}
           </div>
-          <span v-if="m.format === 'singles'" class="text-[0.65rem] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500 shrink-0">1v1</span>
         </div>
       </div>
     </div>

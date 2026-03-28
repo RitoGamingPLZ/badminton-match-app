@@ -10,7 +10,6 @@
  * POST   /rooms                      → createRoom
  * POST   /rooms/:code/join           → joinRoom
  * GET    /rooms/:code                → getRoom
- * PATCH  /rooms/:code/format         → setFormat
  * POST   /rooms/:code/start          → startSession
  * PATCH  /rooms/:code/match          → editMatch   (Command: EditMatchCommand)
  * POST   /rooms/:code/match/done     → markMatchDone (Command: MatchDoneCommand)
@@ -147,11 +146,8 @@ async function runCommand(code, command, room, expectedVersion, stream) {
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 async function handleCreateRoom(event, stream) {
-  const { playerName, format = 'doubles', additionalPlayers = [] } = parseBody(event);
+  const { playerName, additionalPlayers = [] } = parseBody(event);
   if (!playerName?.trim()) return err(stream, 400, 'playerName is required');
-
-  const validFormats = ['doubles', 'singles', 'both'];
-  if (!validFormats.includes(format)) return err(stream, 400, 'Invalid format');
 
   const seen    = new Set([playerName.trim().toLowerCase()]);
   const players = [{ name: playerName.trim(), gamesPlayed: 0 }];
@@ -170,7 +166,7 @@ async function handleCreateRoom(event, stream) {
 
   const token = randomUUID();
   const room  = await db.createRoom({
-    code, hostToken: token, format, started: false,
+    code, hostToken: token, format: 'doubles', started: false,
     players, matches: [], currentMatchIndex: 0,
     undoStack: [], operationLog: [],
   });
@@ -201,25 +197,6 @@ async function handleGetRoom(code, stream) {
   jsonResponse(stream, 200, { room: safeRoom(room) });
 }
 
-async function handleSetFormat(code, event, stream) {
-  const body = parseBody(event);
-  const room = await db.getRoom(code);
-  if (!room) return err(stream, 404, 'Room not found');
-  if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
-  if (room.started) return err(stream, 409, 'Session already started');
-
-  const validFormats = ['doubles', 'singles', 'both'];
-  if (!validFormats.includes(body.format)) return err(stream, 400, 'Invalid format');
-
-  try {
-    const updated = await db.setFormat(code, body.format, body.version ?? room.version);
-    jsonResponse(stream, 200, { room: safeRoom(updated) });
-  } catch (e) {
-    if (e instanceof VersionConflictError) return err(stream, 409, 'Version conflict — reload and retry');
-    throw e;
-  }
-}
-
 async function handleStartSession(code, event, stream) {
   const body = parseBody(event);
   const room = await db.getRoom(code);
@@ -227,11 +204,10 @@ async function handleStartSession(code, event, stream) {
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (room.started) return err(stream, 409, 'Session already started');
 
-  const { format, players } = room;
-  if (format !== 'singles' && players.length < 4) return err(stream, 400, 'Need at least 4 players for doubles');
-  if (players.length < 2) return err(stream, 400, 'Need at least 2 players');
+  const { players } = room;
+  if (players.length < 4) return err(stream, 400, 'Need at least 4 players for doubles');
 
-  const matches = generateMatches(players, calculateInitialRounds(players.length, format), format, 1);
+  const matches = generateMatches(players, calculateInitialRounds(players.length), 1);
   if (matches.length) matches[0].status = 'active';
 
   try {
@@ -290,9 +266,8 @@ async function handleEditMatch(code, event, stream) {
     return err(stream, 409, 'Cannot edit a completed or skipped match');
   }
 
-  const teamSize = match.format === 'doubles' ? 2 : 1;
-  if (!Array.isArray(team1) || team1.length !== teamSize) return err(stream, 400, `team1 must have ${teamSize} player(s)`);
-  if (!Array.isArray(team2) || team2.length !== teamSize) return err(stream, 400, `team2 must have ${teamSize} player(s)`);
+  if (!Array.isArray(team1) || team1.length !== 2) return err(stream, 400, 'team1 must have 2 players');
+  if (!Array.isArray(team2) || team2.length !== 2) return err(stream, 400, 'team2 must have 2 players');
 
   const allNames = new Set(room.players.map(p => p.name));
   const submitted = [...team1, ...team2];
@@ -343,7 +318,7 @@ async function handleAddMatches(code, event, stream) {
 
   const count      = Math.min(body.count || 5, 20);
   const startId    = room.matches.length + 1;
-  const newMatches = generateMatches(room.players, count, room.format, startId);
+  const newMatches = generateMatches(room.players, count, startId);
 
   try {
     const updated = await db.appendMatches(code, newMatches, body.version ?? room.version);
@@ -427,7 +402,6 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
     if (method === 'GET'   && parts.length === 2)                          return await handleGetRoom(code, responseStream);
     if (method === 'GET'   && parts[2] === 'events')                       return await handleSSE(code, event, responseStream);
     if (method === 'POST'  && parts[2] === 'join')                         return await handleJoinRoom(code, event, responseStream);
-    if (method === 'PATCH' && parts[2] === 'format')                       return await handleSetFormat(code, event, responseStream);
     if (method === 'POST'  && parts[2] === 'start')                        return await handleStartSession(code, event, responseStream);
     if (method === 'POST'  && parts[2] === 'match' && parts[3] === 'done') return await handleMarkMatchDone(code, event, responseStream);
     if (method === 'POST'  && parts[2] === 'match' && parts[3] === 'skip') return await handleSkipMatch(code, event, responseStream);

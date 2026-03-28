@@ -8,7 +8,6 @@
  *   createRoom(room)
  *   saveState(code, patch, expectedVersion)
  *   addPlayer(code, player, expectedVersion)
- *   setFormat(code, format, expectedVersion)
  *   startSession(code, matches, expectedVersion)
  *   appendMatches(code, newMatches, expectedVersion)
  *

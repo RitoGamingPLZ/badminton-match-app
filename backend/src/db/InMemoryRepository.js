@@ -64,10 +64,6 @@ export class InMemoryRepository {
     }));
   }
 
-  async setFormat(code, format, expectedVersion) {
-    return this.#apply(code, expectedVersion, () => ({ format }));
-  }
-
   async startSession(code, matches, expectedVersion) {
     return this.#apply(code, expectedVersion, () => ({
       matches,

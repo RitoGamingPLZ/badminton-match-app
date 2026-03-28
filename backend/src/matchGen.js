@@ -1,5 +1,5 @@
 /**
- * Match generation utilities.
+ * Match generation utilities — doubles (2v2) only.
  * All functions are pure — they take player data and return match arrays.
  * gamesPlayed is preserved across regeneration, so fairness survives edits.
  *
@@ -60,14 +60,14 @@ const entry = (name, cnt) => ({ name, cnt, jit: Math.random() });
 
 const pairKey = (a, b) => (a < b ? `${a}||${b}` : `${b}||${a}`);
 
-// ── Generators ────────────────────────────────────────────────────────────────
+// ── Generator ─────────────────────────────────────────────────────────────────
 
 /**
  * Generate doubles matches (2v2).
  * Players with fewer games are prioritised; ties broken randomly each round.
  * Team pairings rotate to avoid always-same-partner repetition.
  */
-export function generateDoublesMatches(players, rounds, startId = 1) {
+export function generateMatches(players, rounds, startId = 1) {
   if (players.length < 4) return [];
 
   const heap = new MinHeap(byCnt);
@@ -114,100 +114,10 @@ export function generateDoublesMatches(players, rounds, startId = 1) {
 }
 
 /**
- * Generate singles matches (1v1).
- * Pulls the top-8 lowest-count candidates from the heap, finds the pair with
- * fewest repeated matchups (and lowest combined count), then pushes all back.
- */
-export function generateSinglesMatches(players, rounds, startId = 1) {
-  if (players.length < 2) return [];
-
-  const heap = new MinHeap(byCnt);
-  for (const p of players) heap.push(entry(p.name, p.gamesPlayed));
-
-  const matchupCnt = {};
-
-  const matches = [];
-  for (let r = 0; r < rounds; r++) {
-    // Drain up to 8 candidates (or all players if fewer)
-    const k = Math.min(heap.size, 8);
-    const candidates = [];
-    for (let i = 0; i < k; i++) candidates.push(heap.pop());
-
-    // Find the pair minimising (matchup repetition × 100 + combined count)
-    let p1 = null, p2 = null, best = Infinity;
-    for (let i = 0; i < candidates.length; i++) {
-      for (let j = i + 1; j < candidates.length; j++) {
-        const key = pairKey(candidates[i].name, candidates[j].name);
-        const sc = (matchupCnt[key] || 0) * 100 + candidates[i].cnt + candidates[j].cnt;
-        if (sc < best) { best = sc; p1 = candidates[i]; p2 = candidates[j]; }
-      }
-    }
-
-    matchupCnt[pairKey(p1.name, p2.name)] = (matchupCnt[pairKey(p1.name, p2.name)] || 0) + 1;
-    const played = new Set([p1.name, p2.name]);
-
-    // Push all candidates back with updated counts + fresh jitter
-    for (const c of candidates) heap.push(entry(c.name, c.cnt + (played.has(c.name) ? 1 : 0)));
-
-    matches.push({
-      id: startId + r,
-      team1: [p1.name],
-      team2: [p2.name],
-      format: 'singles',
-      status: 'pending',
-      winner: null,
-      pinned: false,
-    });
-  }
-
-  return matches;
-}
-
-/**
- * Generate interleaved doubles + singles matches.
- */
-export function generateMixedMatches(players, rounds, startId = 1) {
-  const doublesRounds = Math.ceil(rounds / 2);
-  const singlesRounds = Math.floor(rounds / 2);
-
-  const doubles = generateDoublesMatches(players, doublesRounds, 0);
-  const singles = generateSinglesMatches(players, singlesRounds, 0);
-
-  const mixed = [];
-  let di = 0, si = 0;
-  while (di < doubles.length || si < singles.length) {
-    if (di < doubles.length) mixed.push(doubles[di++]);
-    if (si < singles.length) mixed.push(singles[si++]);
-  }
-  return mixed.map((m, i) => ({ ...m, id: startId + i }));
-}
-
-/**
- * Choose the right generator based on format.
- */
-export function generateMatches(players, rounds, format, startId = 1) {
-  if (format === 'singles') return generateSinglesMatches(players, rounds, startId);
-  if (format === 'both')    return generateMixedMatches(players, rounds, startId);
-  return generateDoublesMatches(players, rounds, startId);
-}
-
-/**
  * Calculate how many rounds to generate for a fresh session.
  */
-export function calculateInitialRounds(playerCount, format) {
-  if (format === 'doubles') return Math.max(10, Math.ceil((playerCount * 8) / 4));
-  if (format === 'singles') return Math.max(10, playerCount * 2);
-  return Math.max(12, playerCount * 3);
-}
-
-/**
- * Regenerate only the pending (future) matches after an edit.
- */
-export function regeneratePendingMatches(allMatches, activeIndex, players, format) {
-  const pendingCount = allMatches.length - activeIndex - 1;
-  const base = allMatches[activeIndex]?.id ?? activeIndex;
-  const pending = generateMatches(players, Math.max(pendingCount, 5), format, base + 1);
-  return pending.map((m, i) => ({ ...m, id: base + 1 + i }));
+export function calculateInitialRounds(playerCount) {
+  return Math.max(10, Math.ceil((playerCount * 8) / 4));
 }
 
 /**
@@ -216,7 +126,7 @@ export function regeneratePendingMatches(allMatches, activeIndex, players, forma
  * Pinned matches (manually edited) stay in place.  The heap fills the unpinned
  * slots, accounting for players already committed in pinned matches.
  */
-export function regenerateUnpinnedMatches(allMatches, afterIndex, players, format) {
+export function regenerateUnpinnedMatches(allMatches, afterIndex, players) {
   const pending = allMatches.slice(afterIndex + 1);
   if (!pending.length) return [];
 
@@ -231,7 +141,7 @@ export function regenerateUnpinnedMatches(allMatches, afterIndex, players, forma
   }
 
   const base = allMatches[afterIndex]?.id ?? afterIndex;
-  const fresh = generateMatches(virtualPlayers, Math.max(unpinnedCount, 3), format, base + 1);
+  const fresh = generateMatches(virtualPlayers, Math.max(unpinnedCount, 3), base + 1);
 
   // Interleave: keep pinned at their relative positions, fill gaps with fresh matches
   const result = [];

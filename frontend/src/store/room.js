@@ -95,11 +95,11 @@ export const useRoomStore = defineStore('room', () => {
   function setError(msg) { error.value = msg }
   function clearError()  { error.value = '' }
 
-  async function createRoom(playerName, format, additionalPlayers = []) {
+  async function createRoom(playerName, additionalPlayers = []) {
     loading.value = true
     clearError()
     try {
-      const { hostToken: token, room: newRoom } = await api.createRoom(playerName, format, additionalPlayers)
+      const { hostToken: token, room: newRoom } = await api.createRoom(playerName, additionalPlayers)
       myName.value    = playerName
       hostToken.value = token
       roomCode.value  = newRoom.code
@@ -130,22 +130,6 @@ export const useRoomStore = defineStore('room', () => {
       setError(e.message)
     } finally {
       loading.value = false
-    }
-  }
-
-  async function setFormat(format) {
-    clearError()
-    try {
-      const { room: updated } = await api.setFormat(
-        roomCode.value, format, room.value.version, hostToken.value
-      )
-      room.value = updated
-    } catch (e) {
-      if (e.status === 409) {
-        const { room: fresh } = await api.getRoom(roomCode.value)
-        room.value = fresh
-      }
-      setError(e.message)
     }
   }
 

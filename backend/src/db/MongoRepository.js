@@ -97,12 +97,6 @@ export class MongoRepository {
     });
   }
 
-  async setFormat(code, format, expectedVersion) {
-    return this.#versionedUpdate(code, expectedVersion, {
-      $set: { format },
-    });
-  }
-
   async startSession(code, matches, expectedVersion) {
     return this.#versionedUpdate(code, expectedVersion, {
       $set: { matches, currentMatchIndex: 0, started: true },

@@ -110,15 +110,6 @@ export class DynamoRepository {
     );
   }
 
-  async setFormat(code, format, expectedVersion) {
-    return this.#conditionalUpdate(
-      code, expectedVersion,
-      'SET #fmt = :f, #v = #v + :one',
-      { ':f': format },
-      { '#fmt': 'format' }
-    );
-  }
-
   async startSession(code, matches, expectedVersion) {
     return this.#conditionalUpdate(
       code, expectedVersion,
