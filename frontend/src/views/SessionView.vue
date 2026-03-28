@@ -1,168 +1,170 @@
 <template>
   <div>
-    <!-- Progress stats -->
-    <div class="card" style="padding:14px;">
-      <div class="stat-row">
-        <div class="stat">
-          <div class="stat-val">{{ store.room?.players.length }}</div>
-          <div class="stat-lbl">Players</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val">{{ store.doneCnt }}</div>
-          <div class="stat-lbl">Done</div>
-        </div>
-        <div class="stat">
-          <div class="stat-val">{{ store.totalCnt }}</div>
-          <div class="stat-lbl">Total</div>
-        </div>
+    <!-- Room bar -->
+    <div class="flex items-center justify-between bg-green-100 border-2 border-green-600 rounded-xl px-3.5 py-2.5 mb-2.5">
+      <div class="flex items-baseline gap-1.5">
+        <span class="text-[0.7rem] font-bold text-green-700 uppercase tracking-[1px]">Room</span>
+        <span class="text-[1.6rem] font-black text-green-700 tracking-[0.15em] leading-none">{{ store.room?.code }}</span>
       </div>
-      <div class="progress-track">
-        <div class="progress-fill" :style="{ width: store.progress + '%' }"></div>
+      <div class="text-[0.78rem] text-green-700 font-medium">
+        {{ store.doneCnt }}/{{ store.totalCnt }} done · {{ store.room?.players.length }} players
       </div>
     </div>
 
-    <!-- Tabs -->
-    <div class="tabs">
-      <button v-for="t in tabs" :key="t.id" class="tab" :class="{ active: activeTab === t.id }" @click="activeTab = t.id">
-        {{ t.label }}
-      </button>
+    <!-- Progress bar -->
+    <div class="bg-slate-200 rounded-full h-1.5 overflow-hidden mb-4">
+      <div class="progress-fill rounded-full" :style="{ width: store.progress + '%' }"></div>
     </div>
 
-    <!-- ⚡ Current match tab -->
-    <template v-if="activeTab === 'current'">
-      <div v-if="store.currentMatch" class="card">
-        <div class="card-title" style="margin-bottom:12px;">
-          ⚡ Match {{ (store.room?.currentMatchIndex ?? 0) + 1 }}
-          <span
-            v-if="store.currentMatch.format === 'singles'"
-            class="fmt-badge"
-            style="margin-left:auto"
-          >1v1</span>
-          <span v-else class="status-badge active" style="margin-left:auto">2v2</span>
-        </div>
-
-        <MatchCourt :match="store.currentMatch" />
-
-        <!-- Host: winner buttons -->
-        <template v-if="store.isHost">
-          <div class="section-lbl" style="margin-top:14px;">Who won?</div>
-          <div class="winner-row">
-            <button class="btn btn-primary btn-sm" @click="store.markMatchDone(1)">
-              🏆 {{ store.currentMatch.team1.join(' & ') }}
-            </button>
-            <button class="btn btn-outline btn-sm" @click="store.markMatchDone(2)">
-              🏆 {{ store.currentMatch.team2.join(' & ') }}
-            </button>
+    <!-- Current match -->
+    <div v-if="store.currentMatch" class="bg-amber-50 border-2 border-amber-400 rounded-2xl p-5 mb-3.5">
+      <div class="flex items-start justify-between mb-3">
+        <div>
+          <div class="text-[0.7rem] font-bold uppercase tracking-[0.8px] text-amber-500 mb-0.5">Current Match</div>
+          <div class="text-[1.1rem] font-extrabold text-slate-800">
+            Match {{ (store.room?.currentMatchIndex ?? 0) + 1 }}
           </div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span class="text-[0.7rem] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-500">
+            {{ store.currentMatch.format === 'singles' ? '1v1' : '2v2' }}
+          </span>
+          <span v-if="store.currentMatch.pinned" title="Manually set">📌</span>
+        </div>
+      </div>
 
+      <MatchCourt :match="store.currentMatch" />
+
+      <!-- Host controls -->
+      <template v-if="store.isHost">
+        <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mt-4 mb-1.5">Who won?</div>
+        <div class="flex gap-2">
           <button
-            class="btn btn-secondary btn-sm"
-            style="margin-top:8px;width:100%"
-            @click="showEdit = true"
+            class="flex-1 py-2.5 px-4 bg-green-600 text-white rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-green-700 active:scale-[0.97] transition-all"
+            @click="store.markMatchDone(1)"
+          >{{ store.currentMatch.team1.join(' & ') }}</button>
+          <button
+            class="flex-1 py-2.5 px-4 bg-transparent text-green-600 border-2 border-green-600 rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-green-100 active:scale-[0.97] transition-all"
+            @click="store.markMatchDone(2)"
+          >{{ store.currentMatch.team2.join(' & ') }}</button>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="grid grid-cols-4 gap-1.5 mt-3">
+          <button
+            v-for="a in actions"
+            :key="a.label"
+            class="flex flex-col items-center gap-0.5 py-2.5 px-1 rounded-xl border-2 border-slate-200 bg-white text-[0.7rem] font-semibold text-slate-500 cursor-pointer transition-all hover:border-green-600 hover:text-green-600 hover:bg-green-50 disabled:opacity-35 disabled:cursor-not-allowed"
+            :class="{ 'border-green-600 text-green-600 bg-green-50': a.active }"
+            :disabled="a.disabled"
+            @click="a.action"
           >
-            ✏️ Edit This Match
+            <span class="text-[1.1rem]">{{ a.icon }}</span>
+            {{ a.label }}
           </button>
-        </template>
-
-        <p v-else style="text-align:center;color:var(--muted);font-size:0.82rem;margin-top:10px;">
-          Waiting for host to record result…
-        </p>
-      </div>
-
-      <!-- Up next -->
-      <div v-if="store.nextMatch" class="card" style="padding:14px;background:var(--bg);box-shadow:none;border:2px solid var(--border);">
-        <div class="section-lbl" style="margin-bottom:8px;">
-          ⏭ Up Next — Match {{ (store.room?.currentMatchIndex ?? 0) + 2 }}
         </div>
-        <MatchCourt :match="store.nextMatch" />
-      </div>
+      </template>
 
-      <!-- All done -->
-      <div v-if="!store.currentMatch" class="card">
-        <div class="empty">
-          <span class="empty-icon">🏆</span>
-          <strong>All matches complete!</strong>
-          <p style="margin-top:8px;">Great session everyone!</p>
-        </div>
-      </div>
+      <p v-else class="text-center text-slate-500 text-[0.82rem] mt-3">
+        Waiting for host to record result…
+      </p>
+    </div>
 
-      <!-- Host: add more matches -->
-      <div v-if="store.isHost" class="card" style="padding:14px;">
-        <div class="section-lbl">Host Controls</div>
-        <button class="btn btn-outline btn-sm" style="width:100%;margin-top:6px;" @click="store.addMatches(5)">
-          ➕ Add 5 More Matches
-        </button>
-      </div>
-    </template>
+    <!-- All done -->
+    <div v-if="!store.currentMatch" class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-5 mb-3.5 text-center py-8">
+      <span class="block text-[2.5rem] mb-2">🏆</span>
+      <strong class="text-slate-800">All matches complete!</strong>
+      <p class="text-slate-500 text-[0.88rem] mt-2">Great session everyone!</p>
+    </div>
 
-    <!-- 📋 Schedule tab -->
-    <template v-if="activeTab === 'schedule'">
-      <div class="card" style="padding:14px;">
-        <div class="card-title">📋 All Matches</div>
-        <div class="scroll-list">
-          <div
-            v-for="(m, i) in store.room?.matches"
-            :key="m.id"
-            class="match-card"
-            :class="m.status"
-          >
-            <div class="match-head">
-              <span class="match-num">Match {{ i + 1 }}</span>
-              <div style="display:flex;gap:5px;align-items:center;">
-                <span v-if="m.format === 'singles'" class="fmt-badge">1v1</span>
-                <span class="status-badge" :class="m.status">
-                  {{ statusLabel(m.status) }}
-                </span>
-              </div>
-            </div>
-            <MatchCourt :match="m" />
-            <p v-if="m.winner" style="font-size:0.75rem;color:var(--green);margin-top:6px;font-weight:600;">
-              🏆 Team {{ m.winner }} won
-            </p>
-          </div>
-          <div v-if="!store.room?.matches.length" class="empty">
-            <span class="empty-icon">📋</span>No matches yet
-          </div>
-        </div>
-      </div>
-    </template>
-
-    <!-- 🏅 Players tab -->
-    <template v-if="activeTab === 'players'">
-      <div class="card">
-        <div class="card-title">🏅 Leaderboard</div>
-        <ul class="player-list">
+    <!-- History panel -->
+    <Transition name="slide">
+      <div v-if="showHistory" class="bg-slate-50 border-2 border-slate-200 rounded-2xl p-5 mb-3.5">
+        <div class="text-base font-bold mb-3">Operation History</div>
+        <div v-if="!store.opLog.length" class="text-slate-500 text-[0.85rem] text-center py-4">No operations yet</div>
+        <ul v-else class="list-none flex flex-col gap-2 max-h-56 overflow-y-auto">
           <li
-            v-for="(p, i) in sortedPlayers"
-            :key="p.name"
-            class="player-item"
+            v-for="(e, i) in [...store.opLog].reverse()"
+            :key="i"
+            class="flex gap-2.5 items-start p-2.5 rounded-lg bg-white border-l-4"
+            :class="{
+              'border-green-600': e.type === 'match_done',
+              'border-amber-400': e.type === 'match_skipped',
+              'border-blue-500':  e.type === 'match_edited',
+            }"
           >
-            <div class="player-left">
-              <div class="avatar" :style="{ background: avatarColor(p.name) }">
-                {{ p.name[0].toUpperCase() }}
-              </div>
-              <div>
-                <div style="font-weight:600">{{ p.name }}</div>
-                <div style="font-size:0.73rem;color:var(--muted)">
-                  {{ p.gamesPlayed }} game{{ p.gamesPlayed !== 1 ? 's' : '' }} played
-                </div>
-              </div>
+            <span class="text-base shrink-0 mt-px">{{ historyIcon(e.type) }}</span>
+            <div class="flex-1 min-w-0">
+              <div class="text-[0.82rem] font-medium text-slate-800">{{ e.description }}</div>
+              <div class="text-[0.7rem] text-slate-500 mt-0.5">{{ formatTime(e.ts) }}</div>
             </div>
-            <span v-if="i === 0 && p.gamesPlayed > 0" style="font-size:1.2rem">🥇</span>
           </li>
         </ul>
       </div>
-    </template>
+    </Transition>
 
-    <!-- Edit match modal -->
+    <!-- Upcoming matches -->
+    <div v-if="store.upcomingMatches.length" class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-3.5 mb-3.5">
+      <div class="flex items-center gap-2 text-base font-bold mb-3">
+        Upcoming
+        <span class="ml-auto bg-slate-200 text-slate-500 text-[0.7rem] font-bold px-2 py-0.5 rounded-full">
+          {{ store.upcomingMatches.length }}
+        </span>
+      </div>
+      <div class="max-h-[42vh] overflow-y-auto">
+        <div
+          v-for="(m, i) in store.upcomingMatches"
+          :key="m.id"
+          class="flex items-center gap-2.5 px-2 py-2.5 rounded-lg bg-slate-50 mb-1.5"
+        >
+          <div class="text-[0.7rem] font-bold text-slate-500 min-w-[28px]">
+            #{{ (store.room?.currentMatchIndex ?? 0) + 2 + i }}
+            <span v-if="m.pinned">📌</span>
+          </div>
+          <div class="flex items-center gap-1.5 flex-1 text-[0.85rem] font-semibold text-slate-800">
+            {{ m.team1.join(' & ') }}
+            <span class="text-slate-400 text-[0.75rem]">vs</span>
+            {{ m.team2.join(' & ') }}
+          </div>
+          <span v-if="m.format === 'singles'" class="text-[0.65rem] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-500 shrink-0">1v1</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Host footer -->
+    <div v-if="store.isHost" class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-3.5 mb-3.5">
+      <div class="flex gap-2">
+        <button
+          class="flex-1 py-2.5 px-4 bg-slate-200 text-slate-800 rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-slate-300 transition-colors"
+          @click="store.addMatches(5)"
+        >+ 5 Matches</button>
+        <button
+          class="flex-1 py-2.5 px-4 bg-red-100 text-red-500 border-2 border-red-500 rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-red-500 hover:text-white transition-colors"
+          @click="showFinish = true"
+        >Finish Game</button>
+      </div>
+    </div>
+
+    <!-- Finish confirmation modal -->
     <Transition name="modal">
-      <EditMatchModal
-        v-if="showEdit && store.currentMatch"
-        :match="store.currentMatch"
-        :players="store.room?.players ?? []"
-        @confirm="onEditConfirm"
-        @cancel="showEdit = false"
-      />
+      <div v-if="showFinish" class="modal-overlay fixed inset-0 bg-black/45 z-[500] flex items-end justify-center">
+        <div class="modal-sheet bg-white rounded-t-3xl w-full max-w-[480px] max-h-[90vh] overflow-y-auto px-5 pt-6 pb-8">
+          <div class="text-[1.1rem] font-bold mb-3">Finish Game?</div>
+          <p class="text-slate-500 text-[0.88rem] mb-5">
+            This will end the session and return everyone to the home screen.
+          </p>
+          <div class="flex gap-2.5">
+            <button
+              class="flex-1 py-2.5 px-4 bg-slate-200 text-slate-800 rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-slate-300 transition-colors"
+              @click="showFinish = false"
+            >Cancel</button>
+            <button
+              class="flex-1 py-2.5 px-4 bg-red-500 text-white rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-red-600 transition-colors"
+              @click="store.leaveRoom()"
+            >End Session</button>
+          </div>
+        </div>
+      </div>
     </Transition>
   </div>
 </template>
@@ -171,36 +173,44 @@
 import { ref, computed } from 'vue'
 import { useRoomStore } from '../store/room.js'
 import MatchCourt from '../components/MatchCourt.vue'
-import EditMatchModal from '../components/EditMatchModal.vue'
-import { avatarColor } from '../utils.js'
 
 const store = useRoomStore()
-const activeTab = ref('current')
-const showEdit = ref(false)
 
-const tabs = [
-  { id: 'current',  label: '⚡ Current'  },
-  { id: 'schedule', label: '📋 Schedule' },
-  { id: 'players',  label: '🏅 Players'  },
-]
+const showHistory = ref(false)
+const showFinish  = ref(false)
 
-const sortedPlayers = computed(() =>
-  [...(store.room?.players ?? [])].sort((a, b) => b.gamesPlayed - a.gamesPlayed)
-)
+const actions = computed(() => [
+  {
+    icon: '⏭', label: 'Skip',
+    action: () => store.skipMatch(),
+    disabled: false, active: false,
+  },
+  {
+    icon: '↩', label: 'Undo',
+    action: () => store.undo(),
+    disabled: !store.canUndo, active: false,
+  },
+  {
+    icon: '✏️', label: 'Edit',
+    action: () => store.openEditMatches(),
+    disabled: false, active: false,
+  },
+  {
+    icon: '📋', label: 'History',
+    action: () => { showHistory.value = !showHistory.value },
+    disabled: false, active: showHistory.value,
+  },
+])
 
-function statusLabel(s) {
-  if (s === 'active') return '▶ Playing'
-  if (s === 'done') return '✓ Done'
-  return 'Upcoming'
+function historyIcon(type) {
+  if (type === 'match_done')    return '✅'
+  if (type === 'match_skipped') return '⏭'
+  if (type === 'match_edited')  return '✏️'
+  return '•'
 }
 
-async function onEditConfirm({ team1, team2 }) {
-  showEdit.value = false
-  await store.editMatch(team1, team2)
+function formatTime(ts) {
+  if (!ts) return ''
+  return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 </script>
-
-<style scoped>
-.winner-row { display: flex; gap: 8px; margin-top: 8px; }
-.winner-row .btn { flex: 1; }
-</style>

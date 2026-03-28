@@ -48,13 +48,6 @@ export async function createRoom(room) {
 /**
  * Apply an arbitrary update expression atomically.
  * Fails with a ConditionalCheckFailedException if `version` has changed.
- *
- * @param {string} code - room code (PK)
- * @param {number} expectedVersion
- * @param {string} updateExpr  - e.g. "SET players = :p, #v = #v + :one"
- * @param {object} exprAttrValues - e.g. { ':p': [...], ':one': 1, ':ev': expectedVersion }
- * @param {object} [exprAttrNames] - e.g. { '#v': 'version' }
- * @returns {Promise<object>} - updated attributes
  */
 export async function conditionalUpdate(
   code,
@@ -73,6 +66,29 @@ export async function conditionalUpdate(
     ReturnValues: 'ALL_NEW',
   }));
   return result.Attributes;
+}
+
+// ── Full-state save (used by operations that push to undo/log) ────────────────
+
+/**
+ * Atomically save a partial room state update.
+ * Any field omitted from `patch` is left unchanged in DynamoDB.
+ *
+ * Supported patch keys: matches, players, currentMatchIndex, undoStack, operationLog
+ */
+export async function saveState(code, patch, expectedVersion) {
+  const setExprs = [];
+  const vals = {};
+
+  if (patch.matches !== undefined)           { setExprs.push('matches = :m');            vals[':m']  = patch.matches; }
+  if (patch.players !== undefined)           { setExprs.push('players = :pl');           vals[':pl'] = patch.players; }
+  if (patch.currentMatchIndex !== undefined) { setExprs.push('currentMatchIndex = :ci'); vals[':ci'] = patch.currentMatchIndex; }
+  if (patch.undoStack !== undefined)         { setExprs.push('undoStack = :us');         vals[':us'] = patch.undoStack; }
+  if (patch.operationLog !== undefined)      { setExprs.push('operationLog = :ol');      vals[':ol'] = patch.operationLog; }
+
+  setExprs.push('#v = #v + :one');
+
+  return conditionalUpdate(code, expectedVersion, `SET ${setExprs.join(', ')}`, vals);
 }
 
 // ── Convenience wrappers ──────────────────────────────────────────────────────
@@ -103,43 +119,6 @@ export async function startSession(code, matches, expectedVersion) {
     code, expectedVersion,
     'SET matches = :m, currentMatchIndex = :zero, started = :true, #v = #v + :one',
     { ':m': matches, ':zero': 0, ':true': true }
-  );
-}
-
-/**
- * Mark the active match as done and activate the next one.
- * Also updates player gamesPlayed counts.
- *
- * @param {string} code
- * @param {number} matchIndex - index of the match being completed
- * @param {number} winner - 1 or 2
- * @param {Array} updatedMatches - full match array with status changes applied
- * @param {Array} updatedPlayers - full player array with gamesPlayed incremented
- * @param {number} nextIndex
- * @param {number} expectedVersion
- */
-export async function markMatchDone(
-  code, matchIndex, winner, updatedMatches, updatedPlayers, nextIndex, expectedVersion
-) {
-  return conditionalUpdate(
-    code, expectedVersion,
-    'SET matches = :m, players = :pl, currentMatchIndex = :ni, #v = #v + :one',
-    { ':m': updatedMatches, ':pl': updatedPlayers, ':ni': nextIndex }
-  );
-}
-
-/**
- * Edit the active match and replace all pending matches.
- *
- * @param {string} code
- * @param {Array} updatedMatches - full match array: done + edited-active + new-pending
- * @param {number} expectedVersion
- */
-export async function editMatch(code, updatedMatches, expectedVersion) {
-  return conditionalUpdate(
-    code, expectedVersion,
-    'SET matches = :m, #v = #v + :one',
-    { ':m': updatedMatches }
   );
 }
 

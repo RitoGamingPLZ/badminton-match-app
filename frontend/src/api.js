@@ -27,8 +27,8 @@ async function request(method, path, body, hostToken) {
 
 export const api = {
   // Room lifecycle
-  createRoom: (playerName, format) =>
-    request('POST', '/rooms', { playerName, format }),
+  createRoom: (playerName, format, additionalPlayers = []) =>
+    request('POST', '/rooms', { playerName, format, additionalPlayers }),
 
   joinRoom: (code, playerName) =>
     request('POST', `/rooms/${code}/join`, { playerName }),
@@ -46,8 +46,15 @@ export const api = {
   markMatchDone: (code, winner, version, hostToken) =>
     request('POST', `/rooms/${code}/match/done`, { winner, version }, hostToken),
 
-  editMatch: (code, team1, team2, version, hostToken) =>
-    request('PATCH', `/rooms/${code}/match`, { team1, team2, version }, hostToken),
+  skipMatch: (code, version, hostToken) =>
+    request('POST', `/rooms/${code}/match/skip`, { version }, hostToken),
+
+  undo: (code, version, hostToken) =>
+    request('POST', `/rooms/${code}/undo`, { version }, hostToken),
+
+  // matchIndex: optional — defaults to current active match on the server
+  editMatch: (code, matchIndex, team1, team2, version, hostToken) =>
+    request('PATCH', `/rooms/${code}/match`, { matchIndex, team1, team2, version }, hostToken),
 
   addMatches: (code, count, version, hostToken) =>
     request('POST', `/rooms/${code}/matches`, { count, version }, hostToken),
@@ -76,7 +83,7 @@ export function openSSE(code, version, onUpdate) {
       try {
         const room = JSON.parse(e.data)
         onUpdate(room)
-        v = room.version  // advance version so we don't re-receive
+        v = room.version
       } catch { /* ignore parse errors */ }
     }
 
