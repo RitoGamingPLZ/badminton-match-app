@@ -25,7 +25,9 @@ await build({
   target: 'node20',
   format: 'esm',
   outfile: `${outDir}/handler.mjs`,
-  external: ['@aws-sdk/*'],
+  // mongodb is excluded: Lambda deployments use DynamoDB (DB_DRIVER=dynamodb).
+  // If you switch Lambda to MongoDB, remove 'mongodb' from this list.
+  external: ['@aws-sdk/*', 'mongodb'],
   banner: {
     js: "import { createRequire } from 'module'; const require = createRequire(import.meta.url);",
   },
