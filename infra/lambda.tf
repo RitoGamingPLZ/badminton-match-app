@@ -28,8 +28,8 @@ resource "aws_iam_role_policy" "lambda_dynamodb" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect   = "Allow"
-        Action   = [
+        Effect = "Allow"
+        Action = [
           "dynamodb:GetItem",
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
@@ -57,7 +57,7 @@ resource "aws_lambda_function" "api" {
   runtime = "nodejs20.x"
 
   architectures = ["arm64"] # Graviton2 — cheaper + faster for Node.js
-  timeout       = 900        # 15 min max — needed for long SSE connections
+  timeout       = 900       # 15 min max — needed for long SSE connections
   memory_size   = 256
 
   environment {
