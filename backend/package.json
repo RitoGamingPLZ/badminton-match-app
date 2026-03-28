@@ -1,0 +1,16 @@
+{
+  "name": "badminton-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "AWS Lambda backend for Badminton Match App",
+  "scripts": {
+    "deploy": "sam build && sam deploy --guided",
+    "deploy:ci": "sam build && sam deploy",
+    "dev": "sam local start-api --port 3001 --warm-containers EAGER"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.540.0",
+    "@aws-sdk/lib-dynamodb": "^3.540.0"
+  },
+  "devDependencies": {}
+}
