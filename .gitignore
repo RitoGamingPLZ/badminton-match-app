@@ -2,5 +2,12 @@ node_modules/
 .env
 .env.local
 frontend/dist/
-backend/.aws-sam/
+backend/dist/
 *.DS_Store
+
+# Terraform
+infra/.terraform/
+infra/.terraform.lock.hcl
+infra/terraform.tfstate
+infra/terraform.tfstate.backup
+infra/*.tfvars
