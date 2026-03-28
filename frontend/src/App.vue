@@ -17,11 +17,10 @@
 
     <!-- Views -->
     <main class="main">
-      <HomeView      v-if="store.view === 'home'"    />
-      <CreateView    v-if="store.view === 'create'"  />
-      <JoinView      v-if="store.view === 'join'"    />
-      <LobbyView     v-if="store.view === 'lobby'"   />
-      <SessionView   v-if="store.view === 'session'" />
+      <HomeView        v-if="store.view === 'home'"         />
+      <LobbyView       v-if="store.view === 'lobby'"        />
+      <SessionView     v-if="store.view === 'session'"      />
+      <EditMatchesView v-if="store.view === 'editMatches'"  />
     </main>
   </div>
 </template>
@@ -29,11 +28,10 @@
 <script setup>
 import { onMounted } from 'vue'
 import { useRoomStore } from './store/room.js'
-import HomeView    from './views/HomeView.vue'
-import CreateView  from './views/CreateView.vue'
-import JoinView    from './views/JoinView.vue'
-import LobbyView   from './views/LobbyView.vue'
-import SessionView from './views/SessionView.vue'
+import HomeView        from './views/HomeView.vue'
+import LobbyView       from './views/LobbyView.vue'
+import SessionView     from './views/SessionView.vue'
+import EditMatchesView from './views/EditMatchesView.vue'
 
 const store = useRoomStore()
 
@@ -164,10 +162,10 @@ body {
 .btn:active { transform: scale(0.97); }
 .btn + .btn { margin-top: 10px; }
 .btn-primary  { background: var(--green); color: white; }
-.btn-primary:hover { background: var(--green-dark); }
+.btn-primary:hover  { background: var(--green-dark); }
 .btn-secondary { background: var(--border); color: var(--text); }
 .btn-secondary:hover { background: #cbd5e1; }
-.btn-amber { background: var(--amber); color: white; }
+.btn-amber  { background: var(--amber); color: white; }
 .btn-amber:hover { background: #d97706; }
 .btn-outline {
   background: transparent;
@@ -232,7 +230,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 10px;
+  padding: 10px;
   border-radius: 10px;
   margin-bottom: 6px;
   background: var(--bg);
@@ -253,7 +251,6 @@ body {
   border-radius: 20px;
 }
 .badge-host { background: var(--green-light); color: var(--green-dark); }
-.badge-games { background: var(--border); color: var(--muted); }
 
 /* ── Room code box ─────────────────────────────────────────────────────────────── */
 .code-box {
@@ -264,31 +261,11 @@ body {
   text-align: center;
   margin-bottom: 14px;
 }
-.code-box .lbl { font-size: 0.72rem; font-weight: 700; color: var(--green-dark); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+.code-box .lbl  { font-size: 0.72rem; font-weight: 700; color: var(--green-dark); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
 .code-box .code { font-size: 2.8rem; font-weight: 900; color: var(--green-dark); letter-spacing: 0.2em; line-height: 1; }
 .code-box .hint { font-size: 0.78rem; color: var(--green-dark); opacity: 0.7; margin-top: 6px; }
 
-/* ── Match card ────────────────────────────────────────────────────────────────── */
-.match-card {
-  border-radius: 12px;
-  border: 2px solid var(--border);
-  padding: 14px;
-  margin-bottom: 10px;
-  background: var(--bg);
-  transition: all 0.2s;
-}
-.match-card.active  { background: var(--amber-light); border-color: var(--amber); }
-.match-card.done    { background: var(--green-light); border-color: #86efac; opacity: 0.7; }
-.match-card.pending { background: var(--bg); }
-
-.match-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.match-num { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
-.status-badge { font-size: 0.7rem; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
-.status-badge.active  { background: var(--amber); color: white; }
-.status-badge.done    { background: var(--green); color: white; }
-.status-badge.pending { background: var(--border); color: var(--muted); }
-.fmt-badge { font-size: 0.7rem; font-weight: 600; padding: 3px 9px; border-radius: 20px; background: var(--blue-light); color: var(--blue); margin-right: 4px; }
-
+/* ── Court ─────────────────────────────────────────────────────────────────────── */
 .court { display: flex; align-items: center; gap: 10px; }
 .team {
   flex: 1;
@@ -298,32 +275,19 @@ body {
   border: 2px solid transparent;
 }
 .team.winner { border-color: var(--green); }
-.team .team-lbl { font-size: 0.68rem; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+.team .team-lbl    { font-size: 0.68rem; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
 .team .team-player { font-size: 0.88rem; font-weight: 600; }
 .vs { font-size: 0.85rem; font-weight: 800; color: var(--muted); flex-shrink: 0; }
 
-/* ── Tabs ─────────────────────────────────────────────────────────────────────── */
-.tabs { display: flex; gap: 4px; background: var(--bg); border-radius: 10px; padding: 4px; margin-bottom: 14px; }
-.tab {
-  flex: 1; padding: 9px 4px;
-  border-radius: 7px; border: none;
-  background: transparent; font-size: 0.8rem; font-weight: 600;
-  cursor: pointer; color: var(--muted); transition: all 0.15s;
-}
-.tab.active { background: white; color: var(--green); box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-
-/* ── Stat row ──────────────────────────────────────────────────────────────────── */
-.stat-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 14px; }
-.stat { background: var(--bg); border-radius: 10px; padding: 12px 8px; text-align: center; }
-.stat-val { font-size: 1.4rem; font-weight: 800; color: var(--green); }
-.stat-lbl { font-size: 0.68rem; color: var(--muted); font-weight: 500; margin-top: 2px; }
+/* ── Badges ────────────────────────────────────────────────────────────────────── */
+.fmt-badge { font-size: 0.7rem; font-weight: 600; padding: 3px 9px; border-radius: 20px; background: var(--blue-light); color: var(--blue); }
 
 /* ── Progress bar ─────────────────────────────────────────────────────────────── */
 .progress-track { background: var(--border); border-radius: 4px; height: 6px; overflow: hidden; }
 .progress-fill  { background: var(--green); height: 100%; transition: width 0.4s; }
 
 /* ── Scrollable list ─────────────────────────────────────────────────────────── */
-.scroll-list { max-height: 52vh; overflow-y: auto; padding-right: 2px; }
+.scroll-list { max-height: 42vh; overflow-y: auto; padding-right: 2px; }
 .scroll-list::-webkit-scrollbar { width: 4px; }
 .scroll-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
 
@@ -352,7 +316,6 @@ body {
   background: rgba(0,0,0,0.45);
   z-index: 500;
   display: flex; align-items: flex-end; justify-content: center;
-  padding: 0;
 }
 .modal-sheet {
   background: white;

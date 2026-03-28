@@ -4,24 +4,20 @@
     <div class="code-box">
       <div class="lbl">Room Code</div>
       <div class="code">{{ store.room?.code }}</div>
-      <div class="hint">Share this code with friends</div>
+      <div class="hint">Share this code with friends to join</div>
     </div>
 
     <!-- Players -->
     <div class="card">
       <div class="card-title">
-        👥 Players
+        Players
         <span style="color:var(--muted);font-weight:500;font-size:0.85rem;">
           ({{ store.room?.players.length }})
         </span>
       </div>
 
       <ul class="player-list">
-        <li
-          v-for="(p, i) in store.room?.players"
-          :key="p.name"
-          class="player-item"
-        >
+        <li v-for="(p, i) in store.room?.players" :key="p.name" class="player-item">
           <div class="player-left">
             <div class="avatar" :style="{ background: avatarColor(p.name) }">
               {{ p.name[0].toUpperCase() }}
@@ -41,11 +37,11 @@
 
         <button
           class="btn btn-amber"
-          style="margin-top:8px"
+          style="margin-top:10px"
           :disabled="store.loading || !canStart"
           @click="store.startSession()"
         >
-          {{ store.loading ? 'Generating…' : '🏸 Generate Matches' }}
+          {{ store.loading ? 'Generating…' : 'Generate Matches' }}
         </button>
         <p v-if="!canStart" class="hint-text">
           Need at least {{ minPlayers }} players for {{ store.room?.format }}
@@ -73,12 +69,8 @@ import { avatarColor } from '../utils.js'
 
 const store = useRoomStore()
 
-const minPlayers = computed(() =>
-  store.room?.format === 'singles' ? 2 : 4
-)
-const canStart = computed(() =>
-  (store.room?.players.length ?? 0) >= minPlayers.value
-)
+const minPlayers = computed(() => store.room?.format === 'singles' ? 2 : 4)
+const canStart   = computed(() => (store.room?.players.length ?? 0) >= minPlayers.value)
 </script>
 
 <style scoped>

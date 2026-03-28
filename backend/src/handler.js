@@ -7,27 +7,30 @@
  *
  * Routes
  * ──────
- * POST   /rooms                    → createRoom
- * POST   /rooms/:code/join         → joinRoom
- * GET    /rooms/:code              → getRoom
- * PATCH  /rooms/:code/format       → setFormat
- * POST   /rooms/:code/start        → startSession
- * PATCH  /rooms/:code/match        → editMatch  (edit active + regenerate pending)
- * POST   /rooms/:code/match/done   → markMatchDone
- * POST   /rooms/:code/matches      → addMatches
- * GET    /rooms/:code/events       → SSE stream
- * OPTIONS *                        → CORS preflight
+ * POST   /rooms                      → createRoom
+ * POST   /rooms/:code/join           → joinRoom
+ * GET    /rooms/:code                → getRoom
+ * PATCH  /rooms/:code/format         → setFormat
+ * POST   /rooms/:code/start          → startSession
+ * PATCH  /rooms/:code/match          → editMatch  (edit any active/pending + regenerate)
+ * POST   /rooms/:code/match/done     → markMatchDone
+ * POST   /rooms/:code/match/skip     → skipMatch
+ * POST   /rooms/:code/undo           → undoLastOperation
+ * POST   /rooms/:code/matches        → addMatches
+ * GET    /rooms/:code/events         → SSE stream
+ * OPTIONS *                          → CORS preflight
  */
 
 import { randomUUID } from 'crypto';
 import * as dynamo from './dynamo.js';
+import {
+  generateMatches,
+  calculateInitialRounds,
+  regenerateUnpinnedMatches,
+} from './matchGen.js';
 
 // ── Local-dev shim ────────────────────────────────────────────────────────────
-// The `awslambda` global is injected by the Lambda runtime (Node 20).
-// SAM local (Docker) also provides it. This shim prevents module-load crashes
-// in plain Node.js environments (e.g. unit tests).
 if (typeof awslambda === 'undefined') {
-  /* eslint-disable no-console */
   console.warn('[shim] awslambda not found — using no-op shim (SSE will not stream)');
   globalThis.awslambda = {
     streamifyResponse: (fn) => fn,
@@ -36,11 +39,11 @@ if (typeof awslambda === 'undefined') {
     },
   };
 }
-import {
-  generateMatches,
-  calculateInitialRounds,
-  regeneratePendingMatches,
-} from './matchGen.js';
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const MAX_UNDO = 10;
+const MAX_LOG  = 50;
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 
@@ -78,6 +81,8 @@ function safeRoom(room) {
     players: room.players.map(p => ({ name: p.name, gamesPlayed: p.gamesPlayed })),
     matches: room.matches,
     currentMatchIndex: room.currentMatchIndex,
+    operationLog: room.operationLog || [],
+    canUndo: (room.undoStack || []).length > 0,
   };
 }
 
@@ -93,14 +98,34 @@ function hostToken(event) {
   return event.headers?.['x-host-token'] || parseBody(event).hostToken || '';
 }
 
+/** Push a snapshot onto the undo stack (capped at MAX_UNDO). */
+function pushUndo(room, snapshot) {
+  return [...(room.undoStack || []), snapshot].slice(-MAX_UNDO);
+}
+
+/** Push an operation log entry (capped at MAX_LOG). */
+function pushLog(room, entry) {
+  return [...(room.operationLog || []), { ...entry, ts: new Date().toISOString() }].slice(-MAX_LOG);
+}
+
 // ── Route handlers ────────────────────────────────────────────────────────────
 
 async function handleCreateRoom(event, stream) {
-  const { playerName, format = 'doubles' } = parseBody(event);
+  const { playerName, format = 'doubles', additionalPlayers = [] } = parseBody(event);
   if (!playerName?.trim()) return err(stream, 400, 'playerName is required');
 
   const validFormats = ['doubles', 'singles', 'both'];
   if (!validFormats.includes(format)) return err(stream, 400, 'Invalid format');
+
+  // Build full player list: host first, then additional (dedup by name)
+  const seen = new Set([playerName.trim().toLowerCase()]);
+  const players = [{ name: playerName.trim(), gamesPlayed: 0 }];
+  for (const n of additionalPlayers) {
+    const trimmed = n?.trim();
+    if (!trimmed || seen.has(trimmed.toLowerCase())) continue;
+    seen.add(trimmed.toLowerCase());
+    players.push({ name: trimmed, gamesPlayed: 0 });
+  }
 
   // Generate a unique 4-digit code
   let code, attempts = 0;
@@ -116,9 +141,11 @@ async function handleCreateRoom(event, stream) {
     hostToken: token,
     format,
     started: false,
-    players: [{ name: playerName.trim(), gamesPlayed: 0 }],
+    players,
     matches: [],
     currentMatchIndex: 0,
+    undoStack: [],
+    operationLog: [],
   });
 
   jsonResponse(stream, 201, { hostToken: token, room: safeRoom(room) });
@@ -206,7 +233,7 @@ async function handleMarkMatchDone(code, event, stream) {
   const match = room.matches[idx];
   if (!match || match.status !== 'active') return err(stream, 409, 'No active match');
 
-  // Update match
+  // Update match status
   const updatedMatches = [...room.matches];
   updatedMatches[idx] = { ...match, status: 'done', winner };
 
@@ -221,10 +248,106 @@ async function handleMarkMatchDone(code, event, stream) {
     participants.has(p.name) ? { ...p, gamesPlayed: p.gamesPlayed + 1 } : p
   );
 
+  const winnerNames = winner === 1 ? match.team1 : match.team2;
+  const loserNames  = winner === 1 ? match.team2 : match.team1;
+
+  const undoStack = pushUndo(room, {
+    matches: room.matches,
+    players: room.players,
+    currentMatchIndex: room.currentMatchIndex,
+  });
+  const operationLog = pushLog(room, {
+    type: 'match_done',
+    matchNum: idx + 1,
+    description: `Match ${idx + 1}: ${winnerNames.join(' & ')} beat ${loserNames.join(' & ')}`,
+  });
+
   try {
-    const updated = await dynamo.markMatchDone(
-      code, idx, winner, updatedMatches, updatedPlayers, nextIdx, expectedVersion
-    );
+    const updated = await dynamo.saveState(code, {
+      matches: updatedMatches,
+      players: updatedPlayers,
+      currentMatchIndex: nextIdx,
+      undoStack,
+      operationLog,
+    }, expectedVersion);
+    jsonResponse(stream, 200, { room: safeRoom(updated) });
+  } catch (e) {
+    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
+    throw e;
+  }
+}
+
+async function handleSkipMatch(code, event, stream) {
+  const body = parseBody(event);
+  const room = await dynamo.getRoom(code);
+  if (!room) return err(stream, 404, 'Room not found');
+  if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
+  if (!room.started) return err(stream, 409, 'Session not started');
+
+  const { version: expectedVersion = room.version } = body;
+
+  const idx = room.currentMatchIndex;
+  const match = room.matches[idx];
+  if (!match || match.status !== 'active') return err(stream, 409, 'No active match');
+
+  const updatedMatches = [...room.matches];
+  updatedMatches[idx] = { ...match, status: 'skipped', winner: null };
+
+  const nextIdx = idx + 1;
+  if (nextIdx < updatedMatches.length) {
+    updatedMatches[nextIdx] = { ...updatedMatches[nextIdx], status: 'active' };
+  }
+
+  const undoStack = pushUndo(room, {
+    matches: room.matches,
+    players: room.players,
+    currentMatchIndex: room.currentMatchIndex,
+  });
+  const operationLog = pushLog(room, {
+    type: 'match_skipped',
+    matchNum: idx + 1,
+    description: `Match ${idx + 1}: skipped (${match.team1.join(' & ')} vs ${match.team2.join(' & ')})`,
+  });
+
+  try {
+    const updated = await dynamo.saveState(code, {
+      matches: updatedMatches,
+      currentMatchIndex: nextIdx,
+      undoStack,
+      operationLog,
+    }, expectedVersion);
+    jsonResponse(stream, 200, { room: safeRoom(updated) });
+  } catch (e) {
+    if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
+    throw e;
+  }
+}
+
+async function handleUndoLastOperation(code, event, stream) {
+  const body = parseBody(event);
+  const room = await dynamo.getRoom(code);
+  if (!room) return err(stream, 404, 'Room not found');
+  if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
+  if (!room.started) return err(stream, 409, 'Session not started');
+
+  const { version: expectedVersion = room.version } = body;
+
+  const undoStack = room.undoStack || [];
+  if (undoStack.length === 0) return err(stream, 409, 'Nothing to undo');
+
+  const snapshot = undoStack[undoStack.length - 1];
+  const newUndoStack = undoStack.slice(0, -1);
+
+  const operationLog = (room.operationLog || []).slice(0, -1);
+
+  try {
+    const updated = await dynamo.saveState(code, {
+      matches: snapshot.matches,
+      players: snapshot.players,
+      currentMatchIndex: snapshot.currentMatchIndex,
+      undoStack: newUndoStack,
+      operationLog,
+    }, expectedVersion);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
     if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
@@ -240,11 +363,14 @@ async function handleEditMatch(code, event, stream) {
   if (!room.started) return err(stream, 409, 'Session not started');
 
   const { team1, team2, version: expectedVersion = room.version } = body;
+  // matchIndex defaults to the current active match
+  const matchIndex = body.matchIndex ?? room.currentMatchIndex;
 
-  // Validate team arrays match the format
-  const idx = room.currentMatchIndex;
-  const match = room.matches[idx];
-  if (!match || match.status !== 'active') return err(stream, 409, 'No active match to edit');
+  const match = room.matches[matchIndex];
+  if (!match) return err(stream, 400, `Match index ${matchIndex} does not exist`);
+  if (match.status === 'done' || match.status === 'skipped') {
+    return err(stream, 409, 'Cannot edit a completed or skipped match');
+  }
 
   const isDoubles = match.format === 'doubles';
   const teamSize = isDoubles ? 2 : 1;
@@ -258,23 +384,37 @@ async function handleEditMatch(code, event, stream) {
   }
   if (new Set(submitted).size !== submitted.length) return err(stream, 400, 'Duplicate players in teams');
 
-  // Update the active match
+  // Mark this match as pinned (manually edited — survives future regeneration)
   const updatedMatches = [...room.matches];
-  updatedMatches[idx] = { ...match, team1, team2 };
+  updatedMatches[matchIndex] = { ...match, team1, team2, pinned: true };
 
-  // Regenerate all pending (future) matches based on CURRENT gamesPlayed
-  const newPending = regeneratePendingMatches(
-    updatedMatches, idx, room.players, match.format
+  // Regenerate non-pinned pending matches after this index
+  const newPending = regenerateUnpinnedMatches(
+    updatedMatches, matchIndex, room.players, match.format
   );
 
-  // Replace pending matches with freshly generated ones
   const finalMatches = [
-    ...updatedMatches.slice(0, idx + 1),
+    ...updatedMatches.slice(0, matchIndex + 1),
     ...newPending,
   ];
 
+  const undoStack = pushUndo(room, {
+    matches: room.matches,
+    players: room.players,
+    currentMatchIndex: room.currentMatchIndex,
+  });
+  const operationLog = pushLog(room, {
+    type: 'match_edited',
+    matchNum: matchIndex + 1,
+    description: `Match ${matchIndex + 1} edited: ${team1.join(' & ')} vs ${team2.join(' & ')}`,
+  });
+
   try {
-    const updated = await dynamo.editMatch(code, finalMatches, expectedVersion);
+    const updated = await dynamo.saveState(code, {
+      matches: finalMatches,
+      undoStack,
+      operationLog,
+    }, expectedVersion);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
     if (e.name === 'ConditionalCheckFailedException') return err(stream, 409, 'Version conflict — reload and retry');
@@ -304,9 +444,9 @@ async function handleAddMatches(code, event, stream) {
 
 // ── SSE handler ───────────────────────────────────────────────────────────────
 
-const SSE_MAX_MS = 10 * 60 * 1000;   // 10 minutes max per connection
-const SSE_POLL_MS = 2000;             // poll DynamoDB every 2 seconds
-const SSE_PING_MS = 30 * 1000;        // keepalive comment every 30 seconds
+const SSE_MAX_MS  = 10 * 60 * 1000;
+const SSE_POLL_MS = 2000;
+const SSE_PING_MS = 30 * 1000;
 
 async function handleSSE(code, event, responseStream) {
   let clientVersion = parseInt(event.queryStringParameters?.version ?? '0', 10);
@@ -345,7 +485,6 @@ async function handleSSE(code, event, responseStream) {
         write(`data: ${JSON.stringify(safeRoom(room))}\n\n`);
       }
 
-      // Keepalive ping
       const now = Date.now();
       if (now - lastPing >= SSE_PING_MS) {
         write(': ping\n\n');
@@ -368,9 +507,8 @@ async function handleSSE(code, event, responseStream) {
 export const handler = awslambda.streamifyResponse(async (event, responseStream) => {
   const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
   const rawPath = event.rawPath ?? event.path ?? '/';
-  const parts = rawPath.split('/').filter(Boolean); // e.g. ['rooms', '1234', 'join']
+  const parts = rawPath.split('/').filter(Boolean);
 
-  // CORS preflight
   if (method === 'OPTIONS') {
     // eslint-disable-next-line no-undef
     const s = awslambda.HttpResponseStream.from(responseStream, {
@@ -382,49 +520,39 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
   }
 
   try {
-    // POST /rooms
     if (method === 'POST' && parts.length === 1 && parts[0] === 'rooms') {
       return await handleCreateRoom(event, responseStream);
     }
 
     const code = parts[1];
 
-    // GET /rooms/:code
     if (method === 'GET' && parts.length === 2) {
       return await handleGetRoom(code, responseStream);
     }
-
-    // GET /rooms/:code/events  (SSE)
     if (method === 'GET' && parts[2] === 'events') {
       return await handleSSE(code, event, responseStream);
     }
-
-    // POST /rooms/:code/join
     if (method === 'POST' && parts[2] === 'join') {
       return await handleJoinRoom(code, event, responseStream);
     }
-
-    // PATCH /rooms/:code/format
     if (method === 'PATCH' && parts[2] === 'format') {
       return await handleSetFormat(code, event, responseStream);
     }
-
-    // POST /rooms/:code/start
     if (method === 'POST' && parts[2] === 'start') {
       return await handleStartSession(code, event, responseStream);
     }
-
-    // POST /rooms/:code/match/done
     if (method === 'POST' && parts[2] === 'match' && parts[3] === 'done') {
       return await handleMarkMatchDone(code, event, responseStream);
     }
-
-    // PATCH /rooms/:code/match  (edit active match)
+    if (method === 'POST' && parts[2] === 'match' && parts[3] === 'skip') {
+      return await handleSkipMatch(code, event, responseStream);
+    }
+    if (method === 'POST' && parts[2] === 'undo') {
+      return await handleUndoLastOperation(code, event, responseStream);
+    }
     if (method === 'PATCH' && parts[2] === 'match' && !parts[3]) {
       return await handleEditMatch(code, event, responseStream);
     }
-
-    // POST /rooms/:code/matches  (add more)
     if (method === 'POST' && parts[2] === 'matches') {
       return await handleAddMatches(code, event, responseStream);
     }

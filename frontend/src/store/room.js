@@ -14,9 +14,9 @@ import { api, openSSE } from '../api.js'
 
 export const useRoomStore = defineStore('room', () => {
   // ── Persistent identity ────────────────────────────────────────────────────
-  const myName = ref(localStorage.getItem('bma_name') || '')
+  const myName    = ref(localStorage.getItem('bma_name') || '')
   const hostToken = ref(localStorage.getItem('bma_hostToken') || null)
-  const roomCode = ref(localStorage.getItem('bma_roomCode') || '')
+  const roomCode  = ref(localStorage.getItem('bma_roomCode') || '')
 
   function saveIdentity() {
     localStorage.setItem('bma_name', myName.value)
@@ -25,30 +25,42 @@ export const useRoomStore = defineStore('room', () => {
   }
 
   // ── Room state ─────────────────────────────────────────────────────────────
-  const room = ref(null)          // safeRoom object from server
-  const error = ref('')
+  const room    = ref(null)
+  const error   = ref('')
   const loading = ref(false)
-  const view = ref('home')        // 'home' | 'create' | 'join' | 'lobby' | 'session'
+  // 'home' | 'lobby' | 'session' | 'editMatches'
+  const view    = ref('home')
 
   // ── Computed ───────────────────────────────────────────────────────────────
   const isHost = computed(() => !!hostToken.value)
+
   const currentMatch = computed(() => {
     if (!room.value) return null
     return room.value.matches[room.value.currentMatchIndex] ?? null
   })
-  const nextMatch = computed(() => {
-    if (!room.value) return null
-    return room.value.matches[room.value.currentMatchIndex + 1] ?? null
+
+  const upcomingMatches = computed(() => {
+    if (!room.value) return []
+    return room.value.matches.slice(room.value.currentMatchIndex + 1).filter(m => m.status === 'pending')
   })
-  const doneCnt = computed(() => room.value?.matches.filter(m => m.status === 'done').length ?? 0)
-  const totalCnt = computed(() => room.value?.matches.length ?? 0)
-  const progress = computed(() => totalCnt.value > 0 ? (doneCnt.value / totalCnt.value) * 100 : 0)
+
+  const editableMatches = computed(() => {
+    if (!room.value) return []
+    return room.value.matches
+      .map((m, i) => ({ ...m, index: i }))
+      .filter(m => m.status === 'active' || m.status === 'pending')
+  })
+
+  const doneCnt    = computed(() => room.value?.matches.filter(m => m.status === 'done').length ?? 0)
+  const totalCnt   = computed(() => room.value?.matches.length ?? 0)
+  const progress   = computed(() => totalCnt.value > 0 ? (doneCnt.value / totalCnt.value) * 100 : 0)
+  const canUndo    = computed(() => room.value?.canUndo ?? false)
+  const opLog      = computed(() => room.value?.operationLog ?? [])
 
   // ── SSE management ─────────────────────────────────────────────────────────
   let sseHandle = null
 
   function applyUpdate(newRoom) {
-    // Only apply if version is newer (ignore stale SSE events)
     if (!room.value || newRoom.version > room.value.version) {
       room.value = newRoom
       if (newRoom.started && view.value === 'lobby') {
@@ -74,7 +86,6 @@ export const useRoomStore = defineStore('room', () => {
     try {
       const { room: fresh } = await api.getRoom(roomCode.value)
       applyUpdate(fresh)
-      // Reconnect SSE if it dropped
       if (!sseHandle || sseHandle.closed) startSSE()
     } catch { /* best-effort */ }
   })
@@ -82,17 +93,17 @@ export const useRoomStore = defineStore('room', () => {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   function setError(msg) { error.value = msg }
-  function clearError() { error.value = '' }
+  function clearError()  { error.value = '' }
 
-  async function createRoom(playerName, format) {
+  async function createRoom(playerName, format, additionalPlayers = []) {
     loading.value = true
     clearError()
     try {
-      const { hostToken: token, room: newRoom } = await api.createRoom(playerName, format)
-      myName.value = playerName
+      const { hostToken: token, room: newRoom } = await api.createRoom(playerName, format, additionalPlayers)
+      myName.value    = playerName
       hostToken.value = token
-      roomCode.value = newRoom.code
-      room.value = newRoom
+      roomCode.value  = newRoom.code
+      room.value      = newRoom
       saveIdentity()
       view.value = 'lobby'
       startSSE()
@@ -108,10 +119,10 @@ export const useRoomStore = defineStore('room', () => {
     clearError()
     try {
       const { room: newRoom } = await api.joinRoom(code, playerName)
-      myName.value = playerName
+      myName.value    = playerName
       hostToken.value = null
-      roomCode.value = code
-      room.value = newRoom
+      roomCode.value  = code
+      room.value      = newRoom
       saveIdentity()
       view.value = newRoom.started ? 'session' : 'lobby'
       startSSE()
@@ -131,7 +142,6 @@ export const useRoomStore = defineStore('room', () => {
       room.value = updated
     } catch (e) {
       if (e.status === 409) {
-        // Version conflict — refresh and retry
         const { room: fresh } = await api.getRoom(roomCode.value)
         room.value = fresh
       }
@@ -171,11 +181,43 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
-  async function editMatch(team1, team2) {
+  async function skipMatch() {
+    clearError()
+    try {
+      const { room: updated } = await api.skipMatch(
+        roomCode.value, room.value.version, hostToken.value
+      )
+      room.value = updated
+    } catch (e) {
+      if (e.status === 409) {
+        const { room: fresh } = await api.getRoom(roomCode.value)
+        room.value = fresh
+      }
+      setError(e.message)
+    }
+  }
+
+  async function undo() {
+    clearError()
+    try {
+      const { room: updated } = await api.undo(
+        roomCode.value, room.value.version, hostToken.value
+      )
+      room.value = updated
+    } catch (e) {
+      if (e.status === 409) {
+        const { room: fresh } = await api.getRoom(roomCode.value)
+        room.value = fresh
+      }
+      setError(e.message)
+    }
+  }
+
+  async function editMatch(matchIndex, team1, team2) {
     clearError()
     try {
       const { room: updated } = await api.editMatch(
-        roomCode.value, team1, team2, room.value.version, hostToken.value
+        roomCode.value, matchIndex, team1, team2, room.value.version, hostToken.value
       )
       room.value = updated
     } catch (e) {
@@ -199,13 +241,21 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  function openEditMatches() {
+    view.value = 'editMatches'
+  }
+
+  function closeEditMatches() {
+    view.value = 'session'
+  }
+
   function leaveRoom() {
     stopSSE()
     hostToken.value = null
-    roomCode.value = ''
-    room.value = null
-    myName.value = ''
-    view.value = 'home'
+    roomCode.value  = ''
+    room.value      = null
+    myName.value    = ''
+    view.value      = 'home'
     localStorage.removeItem('bma_name')
     localStorage.removeItem('bma_hostToken')
     localStorage.removeItem('bma_roomCode')
@@ -220,7 +270,6 @@ export const useRoomStore = defineStore('room', () => {
       view.value = fresh.started ? 'session' : 'lobby'
       startSSE()
     } catch {
-      // Room expired or not found — clear state
       leaveRoom()
     }
   }
@@ -229,10 +278,12 @@ export const useRoomStore = defineStore('room', () => {
     // State
     myName, hostToken, roomCode, room, error, loading, view,
     // Computed
-    isHost, currentMatch, nextMatch, doneCnt, totalCnt, progress,
+    isHost, currentMatch, upcomingMatches, editableMatches,
+    doneCnt, totalCnt, progress, canUndo, opLog,
     // Actions
     createRoom, joinRoom, setFormat, startSession,
-    markMatchDone, editMatch, addMatches,
+    markMatchDone, skipMatch, undo, editMatch, addMatches,
+    openEditMatches, closeEditMatches,
     leaveRoom, tryRestoreSession, clearError,
   }
 })

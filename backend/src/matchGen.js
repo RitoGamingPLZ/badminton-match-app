@@ -59,6 +59,7 @@ export function generateDoublesMatches(players, rounds, startId = 1) {
       format: 'doubles',
       status: 'pending',
       winner: null,
+      pinned: false,
     });
   }
 
@@ -114,6 +115,7 @@ export function generateSinglesMatches(players, rounds, startId = 1) {
       format: 'singles',
       status: 'pending',
       winner: null,
+      pinned: false,
     });
   }
 
@@ -177,4 +179,55 @@ export function regeneratePendingMatches(allMatches, activeIndex, players, forma
   // Reassign IDs cleanly
   const base = allMatches[activeIndex]?.id ?? activeIndex;
   return pending.map((m, i) => ({ ...m, id: base + 1 + i }));
+}
+
+/**
+ * Regenerate non-pinned pending matches after `afterIndex`, preserving pinned ones.
+ *
+ * Pinned matches (manually edited) stay in place. The fairness algorithm fills
+ * the unpinned slots, accounting for players already committed in pinned matches.
+ *
+ * @param {Array} allMatches - full match array
+ * @param {number} afterIndex - regenerate matches strictly after this index
+ * @param {Array<{name: string, gamesPlayed: number}>} players
+ * @param {string} format
+ */
+export function regenerateUnpinnedMatches(allMatches, afterIndex, players, format) {
+  const pending = allMatches.slice(afterIndex + 1);
+  if (pending.length === 0) return [];
+
+  const pinned = pending.filter(m => m.pinned);
+  const unpinnedCount = pending.length - pinned.length;
+
+  // Adjust virtual gamesPlayed to account for players committed in pinned matches
+  const virtualPlayers = players.map(p => ({ ...p }));
+  for (const m of pinned) {
+    const participants = [...m.team1, ...m.team2];
+    for (const vp of virtualPlayers) {
+      if (participants.includes(vp.name)) vp.gamesPlayed++;
+    }
+  }
+
+  // Generate fresh matches for unpinned slots
+  const baseId = allMatches[afterIndex]?.id ?? afterIndex;
+  const newUnpinned = generateMatches(
+    virtualPlayers,
+    Math.max(unpinnedCount, 3),
+    format,
+    baseId + 1,
+  );
+
+  // Interleave: keep pinned at their positions, fill gaps with newly generated
+  const result = [];
+  let unpinnedIdx = 0;
+  for (const m of pending) {
+    if (m.pinned) {
+      result.push(m);
+    } else {
+      if (unpinnedIdx < newUnpinned.length) result.push(newUnpinned[unpinnedIdx++]);
+    }
+  }
+
+  // Reassign IDs sequentially
+  return result.map((m, i) => ({ ...m, id: baseId + 1 + i }));
 }
