@@ -1,101 +1,106 @@
 <template>
   <div>
-    <!-- Back header -->
-    <div class="back-bar">
-      <button class="back-btn" @click="store.closeEditMatches()">← Back</button>
-      <div class="back-title">Edit Matches</div>
+    <!-- Back bar -->
+    <div class="flex items-center gap-3 mb-3">
+      <button
+        class="border-2 border-slate-200 rounded-lg px-3 py-1.5 text-[0.85rem] font-semibold text-slate-800 cursor-pointer hover:border-green-600 hover:text-green-600 transition-colors bg-transparent shrink-0"
+        @click="store.closeEditMatches()"
+      >← Back</button>
+      <div class="text-[1.1rem] font-extrabold text-slate-800">Edit Matches</div>
     </div>
 
-    <p class="hint-text" style="margin-bottom:14px;">
-      Edited matches are pinned — they stay in place when the schedule regenerates.
+    <p class="text-[0.8rem] text-slate-500 mb-3.5">
+      Edited matches are pinned (📌) — they stay in place when the schedule regenerates.
     </p>
 
-    <!-- Match list -->
-    <div v-if="store.editableMatches.length === 0" class="card">
-      <div class="empty">
-        <span class="empty-icon">✓</span>
-        No active or upcoming matches to edit.
-      </div>
+    <div v-if="!store.editableMatches.length" class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-5 text-center py-8 text-slate-500 text-[0.88rem]">
+      No active or upcoming matches to edit.
     </div>
 
     <div
       v-for="m in store.editableMatches"
       :key="m.index"
-      class="card match-edit-card"
-      :class="{ active: m.status === 'active' }"
+      class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-3.5 mb-3.5 border-2 transition-colors"
+      :class="m.status === 'active' ? 'border-amber-400 bg-amber-50' : 'border-transparent'"
     >
-      <!-- Match row header -->
-      <div class="match-edit-header" @click="toggleExpand(m.index)">
-        <div class="match-edit-left">
-          <div class="match-edit-num">
+      <!-- Header row -->
+      <div class="flex items-center justify-between cursor-pointer select-none" @click="toggleExpand(m.index)">
+        <div class="flex-1">
+          <div class="flex items-center gap-1.5 text-[0.72rem] font-bold uppercase tracking-[0.5px] text-slate-500 mb-0.5">
             Match {{ m.index + 1 }}
-            <span v-if="m.status === 'active'" class="badge-active">Playing</span>
-            <span v-if="m.pinned" class="pin-badge">📌</span>
+            <span v-if="m.status === 'active'" class="bg-amber-400 text-white text-[0.65rem] px-2 py-0.5 rounded-full">Playing</span>
+            <span v-if="m.pinned">📌</span>
           </div>
-          <div class="match-edit-teams">
-            {{ m.team1.join(' & ') }} <span class="vs-small">vs</span> {{ m.team2.join(' & ') }}
+          <div class="text-[0.92rem] font-semibold text-slate-800">
+            {{ m.team1.join(' & ') }} <span class="text-slate-400 text-[0.78rem] mx-1">vs</span> {{ m.team2.join(' & ') }}
           </div>
         </div>
-        <span class="expand-icon">{{ expandedIndex === m.index ? '▲' : '▼' }}</span>
+        <span class="text-[0.7rem] text-slate-400 ml-2">{{ expandedIndex === m.index ? '▲' : '▼' }}</span>
       </div>
 
       <!-- Inline editor -->
       <Transition name="expand">
-        <div v-if="expandedIndex === m.index" class="editor">
-          <div class="section-lbl" style="margin-top:4px;">Team 1</div>
-          <div class="player-grid">
+        <div v-if="expandedIndex === m.index" class="border-t-2 border-slate-200 mt-3 pt-3.5">
+          <!-- Team 1 -->
+          <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mb-1.5">Team 1</div>
+          <div class="grid grid-cols-2 gap-2 mb-3">
             <div
               v-for="p in store.room.players"
               :key="'t1-' + p.name"
-              class="pick-btn"
+              class="flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-[0.88rem] font-semibold cursor-pointer transition-all"
               :class="{
-                selected: editTeam1.includes(p.name),
-                disabled: editTeam2.includes(p.name),
+                'border-green-600 bg-green-100': editTeam1.includes(p.name),
+                'opacity-35 cursor-not-allowed': editTeam2.includes(p.name),
+                'border-slate-200 bg-slate-50 hover:border-slate-300': !editTeam1.includes(p.name) && !editTeam2.includes(p.name),
               }"
               @click="toggle('team1', p.name, teamSize(m))"
             >
-              <div class="avatar sm" :style="{ background: avatarColor(p.name) }">
-                {{ p.name[0].toUpperCase() }}
-              </div>
-              <span>{{ p.name }}</span>
-              <span v-if="editTeam1.includes(p.name)" class="check">✓</span>
+              <div
+                class="w-7 h-7 rounded-full text-white text-[0.75rem] font-bold flex items-center justify-center shrink-0"
+                :style="{ background: avatarColor(p.name) }"
+              >{{ p.name[0].toUpperCase() }}</div>
+              <span class="flex-1">{{ p.name }}</span>
+              <span v-if="editTeam1.includes(p.name)" class="text-green-600 font-extrabold">✓</span>
             </div>
           </div>
 
-          <div class="section-lbl" style="margin-top:12px;">Team 2</div>
-          <div class="player-grid">
+          <!-- Team 2 -->
+          <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mb-1.5">Team 2</div>
+          <div class="grid grid-cols-2 gap-2 mb-3">
             <div
               v-for="p in store.room.players"
               :key="'t2-' + p.name"
-              class="pick-btn"
+              class="flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-[0.88rem] font-semibold cursor-pointer transition-all"
               :class="{
-                selected: editTeam2.includes(p.name),
-                disabled: editTeam1.includes(p.name),
+                'border-green-600 bg-green-100': editTeam2.includes(p.name),
+                'opacity-35 cursor-not-allowed': editTeam1.includes(p.name),
+                'border-slate-200 bg-slate-50 hover:border-slate-300': !editTeam2.includes(p.name) && !editTeam1.includes(p.name),
               }"
               @click="toggle('team2', p.name, teamSize(m))"
             >
-              <div class="avatar sm" :style="{ background: avatarColor(p.name) }">
-                {{ p.name[0].toUpperCase() }}
-              </div>
-              <span>{{ p.name }}</span>
-              <span v-if="editTeam2.includes(p.name)" class="check">✓</span>
+              <div
+                class="w-7 h-7 rounded-full text-white text-[0.75rem] font-bold flex items-center justify-center shrink-0"
+                :style="{ background: avatarColor(p.name) }"
+              >{{ p.name[0].toUpperCase() }}</div>
+              <span class="flex-1">{{ p.name }}</span>
+              <span v-if="editTeam2.includes(p.name)" class="text-green-600 font-extrabold">✓</span>
             </div>
           </div>
 
-          <p class="regen-note">
-            Pending matches after this one will be regenerated to maintain fairness,
-            keeping other pinned matches in place.
+          <p class="text-[0.76rem] text-slate-500 bg-slate-50 rounded-lg px-3 py-2 mb-3">
+            Pending matches after this one will regenerate to maintain fairness, keeping other pinned matches.
           </p>
 
-          <div class="editor-actions">
-            <button class="btn btn-secondary btn-sm" @click="cancelEdit()">Cancel</button>
+          <div class="flex gap-2.5">
             <button
-              class="btn btn-primary btn-sm"
+              class="flex-1 py-2.5 px-4 bg-slate-200 text-slate-800 rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-slate-300 transition-colors"
+              @click="cancelEdit"
+            >Cancel</button>
+            <button
+              class="flex-1 py-2.5 px-4 bg-green-600 text-white rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-green-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               :disabled="!isValid(m) || saving"
               @click="saveEdit(m)"
-            >
-              {{ saving ? 'Saving…' : 'Save & Regenerate' }}
-            </button>
+            >{{ saving ? 'Saving…' : 'Save & Regenerate' }}</button>
           </div>
         </div>
       </Transition>
@@ -115,15 +120,10 @@ const editTeam1 = ref([])
 const editTeam2 = ref([])
 const saving = ref(false)
 
-function teamSize(m) {
-  return m.format === 'singles' ? 1 : 2
-}
+const teamSize = m => m.format === 'singles' ? 1 : 2
 
 function toggleExpand(idx) {
-  if (expandedIndex.value === idx) {
-    expandedIndex.value = null
-    return
-  }
+  if (expandedIndex.value === idx) { expandedIndex.value = null; return }
   const m = store.editableMatches.find(m => m.index === idx)
   if (!m) return
   editTeam1.value = [...m.team1]
@@ -131,28 +131,21 @@ function toggleExpand(idx) {
   expandedIndex.value = idx
 }
 
-function cancelEdit() {
-  expandedIndex.value = null
-}
+function cancelEdit() { expandedIndex.value = null }
 
 function toggle(side, name, size) {
   const t     = side === 'team1' ? editTeam1 : editTeam2
   const other = side === 'team1' ? editTeam2 : editTeam1
   if (other.value.includes(name)) return
-  if (t.value.includes(name)) {
-    t.value = t.value.filter(n => n !== name)
-  } else if (t.value.length < size) {
-    t.value = [...t.value, name]
-  }
+  t.value = t.value.includes(name)
+    ? t.value.filter(n => n !== name)
+    : t.value.length < size ? [...t.value, name] : t.value
 }
 
-function isValid(m) {
-  const size = teamSize(m)
-  return (
-    editTeam1.value.length === size &&
-    editTeam2.value.length === size &&
-    new Set([...editTeam1.value, ...editTeam2.value]).size === size * 2
-  )
+const isValid = m => {
+  const s = teamSize(m)
+  return editTeam1.value.length === s && editTeam2.value.length === s &&
+    new Set([...editTeam1.value, ...editTeam2.value]).size === s * 2
 }
 
 async function saveEdit(m) {
@@ -163,98 +156,3 @@ async function saveEdit(m) {
   expandedIndex.value = null
 }
 </script>
-
-<style scoped>
-.back-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.back-btn {
-  background: none;
-  border: 2px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-.back-btn:hover { border-color: var(--green); color: var(--green); }
-.back-title { font-size: 1.1rem; font-weight: 800; }
-
-.hint-text { font-size: 0.8rem; color: var(--muted); }
-
-/* ── Match card ──────────────────────────────────────────────────────────── */
-.match-edit-card { padding: 14px; }
-.match-edit-card.active { border: 2px solid var(--amber); background: var(--amber-light); }
-
-.match-edit-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: pointer;
-  user-select: none;
-}
-.match-edit-left { flex: 1; }
-.match-edit-num {
-  font-size: 0.72rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 3px;
-}
-.match-edit-teams {
-  font-size: 0.92rem;
-  font-weight: 600;
-  color: var(--text);
-}
-.vs-small { color: var(--muted); font-size: 0.78rem; margin: 0 4px; }
-.expand-icon { font-size: 0.7rem; color: var(--muted); }
-.badge-active { background: var(--amber); color: white; font-size: 0.65rem; padding: 2px 7px; border-radius: 20px; }
-.pin-badge { font-size: 0.8rem; }
-
-/* ── Inline editor ───────────────────────────────────────────────────────── */
-.editor { padding-top: 14px; border-top: 2px solid var(--border); margin-top: 12px; }
-
-.player-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.pick-btn {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 2px solid var(--border);
-  background: white;
-  cursor: pointer;
-  font-size: 0.88rem;
-  font-weight: 600;
-  transition: all 0.15s;
-  position: relative;
-}
-.pick-btn.selected { border-color: var(--green); background: var(--green-light); }
-.pick-btn.disabled { opacity: 0.35; cursor: not-allowed; }
-.avatar.sm { width: 28px; height: 28px; font-size: 0.75rem; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.check { margin-left: auto; color: var(--green); font-weight: 800; }
-
-.regen-note {
-  font-size: 0.76rem;
-  color: var(--muted);
-  margin-top: 12px;
-  padding: 8px 10px;
-  background: var(--bg);
-  border-radius: 8px;
-}
-
-.editor-actions { display: flex; gap: 10px; margin-top: 14px; }
-.editor-actions .btn { flex: 1; }
-
-/* ── Expand transition ───────────────────────────────────────────────────── */
-.expand-enter-active, .expand-leave-active { transition: all 0.2s ease; overflow: hidden; }
-.expand-enter-from, .expand-leave-to { opacity: 0; max-height: 0; padding-top: 0; margin-top: 0; }
-.expand-enter-to, .expand-leave-from { max-height: 600px; }
-</style>

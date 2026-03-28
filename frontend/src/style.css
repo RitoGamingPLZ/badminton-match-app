@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/* ── Vue transition: toast ──────────────────────────────────────────────── */
+.toast-enter-active,
+.toast-leave-active  { transition: all 0.3s; }
+.toast-enter-from,
+.toast-leave-to      { opacity: 0; transform: translateX(-50%) translateY(20px); }
+
+/* ── Vue transition: modal sheet (slides up from bottom) ────────────────── */
+.modal-enter-active,
+.modal-leave-active  { transition: all 0.25s; }
+.modal-enter-from,
+.modal-leave-to      { opacity: 0; }
+.modal-enter-from .modal-sheet,
+.modal-leave-to   .modal-sheet { transform: translateY(100%); }
+
+/* ── Vue transition: slide-down panel (history) ─────────────────────────── */
+.slide-enter-active,
+.slide-leave-active  { transition: all 0.25s ease; overflow: hidden; }
+.slide-enter-from,
+.slide-leave-to      { opacity: 0; max-height: 0; margin-bottom: 0; }
+.slide-enter-to,
+.slide-leave-from    { max-height: 400px; }
+
+/* ── Vue transition: expand (inline editor) ─────────────────────────────── */
+.expand-enter-active,
+.expand-leave-active { transition: all 0.2s ease; overflow: hidden; }
+.expand-enter-from,
+.expand-leave-to     { opacity: 0; max-height: 0; padding-top: 0; margin-top: 0; }
+.expand-enter-to,
+.expand-leave-from   { max-height: 600px; }
+
+/* ── Waiting dots bounce ────────────────────────────────────────────────── */
+@keyframes dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30%            { transform: translateY(-6px); }
+}
+.dot-bounce          { display: inline-block; font-size: 1.3rem; animation: dot-bounce 1.2s infinite; }
+.dot-bounce-d1       { animation-delay: 0.2s; }
+.dot-bounce-d2       { animation-delay: 0.4s; }
+
+/* ── Progress bar fill (needs transition on width) ──────────────────────── */
+.progress-fill { background: #16a34a; height: 100%; transition: width 0.4s; }
+
+/* ── Code input style ───────────────────────────────────────────────────── */
+.input-code { font-size: 2rem !important; font-weight: 800 !important; letter-spacing: 0.3em !important; text-align: center !important; }

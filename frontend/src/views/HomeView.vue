@@ -1,39 +1,53 @@
 <template>
   <div>
     <!-- Create Room -->
-    <div class="card">
-      <div class="card-title">Create Room</div>
+    <div class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-5 mb-3.5">
+      <div class="text-base font-bold mb-4">Create Room</div>
 
-      <div class="field">
-        <label>Your Name</label>
-        <input v-model="hostName" placeholder="e.g. Alan" maxlength="20" @keydown.enter="focusPlayer" />
+      <div class="mb-3.5">
+        <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Your Name</label>
+        <input
+          v-model="hostName"
+          class="w-full px-3.5 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 bg-white outline-none focus:border-green-600 transition-colors"
+          placeholder="e.g. Alan"
+          maxlength="20"
+          @keydown.enter="focusPlayerInput"
+        />
       </div>
 
-      <div class="field">
-        <label>Match Format</label>
+      <div class="mb-3.5">
+        <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Match Format</label>
       </div>
       <FormatPicker v-model="format" />
 
-      <!-- Player list -->
-      <div class="field" style="margin-top:14px;">
-        <label>Players (optional — add everyone upfront)</label>
+      <!-- Extra players -->
+      <div class="mb-2">
+        <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">
+          Players <span class="normal-case font-normal">(optional — add everyone upfront)</span>
+        </label>
       </div>
-      <div class="player-inputs">
-        <div v-for="(_, i) in extraPlayers" :key="i" class="player-input-row">
+      <div class="flex flex-col gap-2">
+        <div v-for="(_, i) in extraPlayers" :key="i" class="flex gap-2 items-center">
           <input
             v-model="extraPlayers[i]"
+            class="flex-1 px-3.5 py-2.5 border-2 border-slate-200 rounded-xl text-[0.95rem] text-slate-800 bg-white outline-none focus:border-green-600 transition-colors player-input"
             :placeholder="`Player ${i + 2}`"
             maxlength="20"
             @keydown.enter="addPlayerField"
           />
-          <button class="remove-btn" @click="removePlayer(i)">✕</button>
+          <button
+            class="w-8 h-8 rounded-full border-none bg-slate-200 text-slate-500 text-[0.8rem] cursor-pointer flex items-center justify-center shrink-0 hover:bg-red-100 hover:text-red-500 transition-colors"
+            @click="removePlayer(i)"
+          >✕</button>
         </div>
-        <button class="btn-add-player" @click="addPlayerField">+ Add player</button>
+        <button
+          class="border-2 border-dashed border-slate-200 rounded-xl py-2.5 text-[0.85rem] font-semibold text-slate-500 cursor-pointer bg-transparent text-center hover:border-green-600 hover:text-green-600 transition-colors"
+          @click="addPlayerField"
+        >+ Add player</button>
       </div>
 
       <button
-        class="btn btn-primary"
-        style="margin-top:16px"
+        class="mt-4 block w-full py-3.5 px-5 bg-green-600 text-white rounded-xl font-semibold text-base cursor-pointer hover:bg-green-700 active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
         :disabled="store.loading || !hostName.trim()"
         @click="submitCreate"
       >
@@ -42,17 +56,22 @@
     </div>
 
     <!-- Divider -->
-    <div class="divider"><span>or join an existing room</span></div>
+    <div class="relative text-center my-1 text-[0.78rem] text-slate-500">
+      <span class="relative z-10 bg-slate-50 px-3">or join an existing room</span>
+      <div class="absolute inset-0 flex items-center">
+        <div class="w-full border-t border-slate-200"></div>
+      </div>
+    </div>
 
     <!-- Join Room -->
-    <div class="card">
-      <div class="card-title">Join Room</div>
+    <div class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-5 mb-3.5">
+      <div class="text-base font-bold mb-4">Join Room</div>
 
-      <div class="field">
-        <label>Room Code</label>
+      <div class="mb-3.5">
+        <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Room Code</label>
         <input
           v-model="joinCode"
-          class="code"
+          class="w-full px-3.5 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 bg-white outline-none focus:border-green-600 transition-colors input-code"
           placeholder="1234"
           maxlength="4"
           inputmode="numeric"
@@ -62,10 +81,11 @@
         />
       </div>
 
-      <div class="field">
-        <label>Your Name</label>
+      <div class="mb-3.5">
+        <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Your Name</label>
         <input
           v-model="joinName"
+          class="w-full px-3.5 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 bg-white outline-none focus:border-green-600 transition-colors"
           placeholder="e.g. Sarah"
           maxlength="20"
           @keydown.enter="submitJoin"
@@ -73,7 +93,7 @@
       </div>
 
       <button
-        class="btn btn-outline"
+        class="block w-full py-3.5 px-5 bg-transparent text-green-600 border-2 border-green-600 rounded-xl font-semibold text-base cursor-pointer hover:bg-green-100 active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
         :disabled="store.loading || joinCode.length !== 4 || !joinName.trim()"
         @click="submitJoin"
       >
@@ -93,30 +113,27 @@ const store = useRoomStore()
 const hostName    = ref('')
 const format      = ref('doubles')
 const extraPlayers = ref([])
-
-const joinCode = ref('')
-const joinName = ref('')
+const joinCode    = ref('')
+const joinName    = ref('')
 
 function addPlayerField() {
   extraPlayers.value.push('')
   nextTick(() => {
-    const inputs = document.querySelectorAll('.player-input-row input')
+    const inputs = document.querySelectorAll('.player-input')
     inputs[inputs.length - 1]?.focus()
   })
 }
 
-function removePlayer(i) {
-  extraPlayers.value.splice(i, 1)
-}
-
-function focusPlayer() {
-  document.querySelector('.player-input-row input')?.focus()
-}
+function removePlayer(i) { extraPlayers.value.splice(i, 1) }
+function focusPlayerInput() { document.querySelector('.player-input')?.focus() }
 
 function submitCreate() {
   if (!hostName.value.trim()) return
-  const additional = extraPlayers.value.map(n => n.trim()).filter(Boolean)
-  store.createRoom(hostName.value.trim(), format.value, additional)
+  store.createRoom(
+    hostName.value.trim(),
+    format.value,
+    extraPlayers.value.map(n => n.trim()).filter(Boolean),
+  )
 }
 
 function submitJoin() {
@@ -124,53 +141,3 @@ function submitJoin() {
   store.joinRoom(joinCode.value, joinName.value.trim())
 }
 </script>
-
-<style scoped>
-.player-inputs { display: flex; flex-direction: column; gap: 8px; }
-.player-input-row { display: flex; gap: 8px; align-items: center; }
-.player-input-row input {
-  flex: 1;
-  padding: 10px 12px;
-  border: 2px solid var(--border);
-  border-radius: 10px;
-  font-size: 0.95rem;
-  outline: none;
-  transition: border-color 0.15s;
-}
-.player-input-row input:focus { border-color: var(--green); }
-.remove-btn {
-  width: 32px; height: 32px;
-  border-radius: 50%; border: none;
-  background: var(--border); color: var(--muted);
-  font-size: 0.8rem; cursor: pointer; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-}
-.remove-btn:hover { background: var(--red-light); color: var(--red); }
-
-.btn-add-player {
-  background: none; border: 2px dashed var(--border);
-  border-radius: 10px; padding: 9px;
-  color: var(--muted); font-size: 0.85rem; font-weight: 600;
-  cursor: pointer; text-align: center;
-  transition: all 0.15s;
-}
-.btn-add-player:hover { border-color: var(--green); color: var(--green); }
-
-.divider {
-  text-align: center;
-  position: relative;
-  margin: 4px 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-.divider::before, .divider::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 30%;
-  height: 1px;
-  background: var(--border);
-}
-.divider::before { left: 0; }
-.divider::after  { right: 0; }
-</style>

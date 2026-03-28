@@ -1,58 +1,61 @@
 <template>
   <div>
     <!-- Room code -->
-    <div class="code-box">
-      <div class="lbl">Room Code</div>
-      <div class="code">{{ store.room?.code }}</div>
-      <div class="hint">Share this code with friends to join</div>
+    <div class="bg-green-100 border-2 border-green-600 rounded-2xl p-5 text-center mb-3.5">
+      <div class="text-[0.72rem] font-bold text-green-700 uppercase tracking-[1px] mb-1">Room Code</div>
+      <div class="text-[2.8rem] font-black text-green-700 tracking-[0.2em] leading-none">{{ store.room?.code }}</div>
+      <div class="text-[0.78rem] text-green-700/70 mt-1.5">Share this code with friends</div>
     </div>
 
     <!-- Players -->
-    <div class="card">
-      <div class="card-title">
+    <div class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-5 mb-3.5">
+      <div class="flex items-center gap-2 text-base font-bold mb-4">
         Players
-        <span style="color:var(--muted);font-weight:500;font-size:0.85rem;">
-          ({{ store.room?.players.length }})
-        </span>
+        <span class="text-slate-500 font-medium text-[0.85rem]">({{ store.room?.players.length }})</span>
       </div>
 
-      <ul class="player-list">
-        <li v-for="(p, i) in store.room?.players" :key="p.name" class="player-item">
-          <div class="player-left">
-            <div class="avatar" :style="{ background: avatarColor(p.name) }">
-              {{ p.name[0].toUpperCase() }}
-            </div>
-            <span style="font-weight:600">{{ p.name }}</span>
+      <ul class="list-none">
+        <li
+          v-for="(p, i) in store.room?.players"
+          :key="p.name"
+          class="flex items-center justify-between px-2.5 py-2.5 rounded-xl mb-1.5 bg-slate-50"
+        >
+          <div class="flex items-center gap-2.5">
+            <div
+              class="w-8 h-8 rounded-full text-white text-[0.85rem] font-bold flex items-center justify-center shrink-0"
+              :style="{ background: avatarColor(p.name) }"
+            >{{ p.name[0].toUpperCase() }}</div>
+            <span class="font-semibold text-slate-800">{{ p.name }}</span>
           </div>
-          <span v-if="i === 0" class="badge badge-host">Host</span>
+          <span v-if="i === 0" class="text-[0.7rem] font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Host</span>
         </li>
       </ul>
 
       <!-- Host controls -->
       <template v-if="store.isHost">
-        <div style="margin-top:16px;">
-          <div class="section-lbl">Match Format</div>
+        <div class="mt-4">
+          <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mb-1.5">Match Format</div>
           <FormatPicker :model-value="store.room?.format" @update:model-value="store.setFormat($event)" />
         </div>
-
         <button
-          class="btn btn-amber"
-          style="margin-top:10px"
+          class="mt-2 block w-full py-3.5 px-5 bg-amber-400 text-white rounded-xl font-semibold text-base cursor-pointer hover:bg-amber-500 active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
           :disabled="store.loading || !canStart"
           @click="store.startSession()"
         >
           {{ store.loading ? 'Generating…' : 'Generate Matches' }}
         </button>
-        <p v-if="!canStart" class="hint-text">
+        <p v-if="!canStart" class="text-[0.78rem] text-slate-500 mt-2 text-center">
           Need at least {{ minPlayers }} players for {{ store.room?.format }}
         </p>
       </template>
 
       <!-- Non-host waiting -->
       <template v-else>
-        <div class="waiting">
-          <div class="dots">
-            <span>🏸</span><span>🏸</span><span>🏸</span>
+        <div class="text-center py-5 text-slate-500 text-[0.88rem]">
+          <div class="mb-3">
+            <span class="dot-bounce">🏸</span>
+            <span class="dot-bounce dot-bounce-d1">🏸</span>
+            <span class="dot-bounce dot-bounce-d2">🏸</span>
           </div>
           <p>Waiting for host to start…</p>
         </div>
@@ -68,13 +71,6 @@ import FormatPicker from '../components/FormatPicker.vue'
 import { avatarColor } from '../utils.js'
 
 const store = useRoomStore()
-
 const minPlayers = computed(() => store.room?.format === 'singles' ? 2 : 4)
 const canStart   = computed(() => (store.room?.players.length ?? 0) >= minPlayers.value)
 </script>
-
-<style scoped>
-.waiting { text-align: center; padding: 20px 0; color: var(--muted); font-size: 0.88rem; }
-.waiting p { margin-top: 12px; }
-.hint-text { font-size: 0.78rem; color: var(--muted); margin-top: 8px; text-align: center; }
-</style>

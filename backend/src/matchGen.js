@@ -2,55 +2,102 @@
  * Match generation utilities.
  * All functions are pure — they take player data and return match arrays.
  * gamesPlayed is preserved across regeneration, so fairness survives edits.
+ *
+ * A MinHeap is used to pick the lowest-game-count players in O(log n) per
+ * extraction rather than O(n log n) per sort.  Tiebreaking uses a re-randomised
+ * jitter so every round gets a fresh random ordering among equally-played players.
  */
+
+// ── Min-Heap ──────────────────────────────────────────────────────────────────
+
+class MinHeap {
+  #data = [];
+  #cmp;
+
+  constructor(cmp) { this.#cmp = cmp; }
+
+  get size() { return this.#data.length; }
+
+  push(v) {
+    this.#data.push(v);
+    let i = this.#data.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (this.#cmp(this.#data[i], this.#data[p]) >= 0) break;
+      [this.#data[i], this.#data[p]] = [this.#data[p], this.#data[i]];
+      i = p;
+    }
+  }
+
+  pop() {
+    if (!this.#data.length) return undefined;
+    const top = this.#data[0];
+    const last = this.#data.pop();
+    if (this.#data.length) {
+      this.#data[0] = last;
+      let i = 0;
+      while (true) {
+        let m = i;
+        const l = 2 * i + 1, r = 2 * i + 2;
+        if (l < this.#data.length && this.#cmp(this.#data[l], this.#data[m]) < 0) m = l;
+        if (r < this.#data.length && this.#cmp(this.#data[r], this.#data[m]) < 0) m = r;
+        if (m === i) break;
+        [this.#data[i], this.#data[m]] = [this.#data[m], this.#data[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+/** Heap entry comparator: order by count, break ties with random jitter. */
+const byCnt = (a, b) => a.cnt - b.cnt || a.jit - b.jit;
+
+/** Build an initial heap entry for a player. */
+const entry = (name, cnt) => ({ name, cnt, jit: Math.random() });
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const pairKey = (a, b) => (a < b ? `${a}||${b}` : `${b}||${a}`);
+
+// ── Generators ────────────────────────────────────────────────────────────────
 
 /**
  * Generate doubles matches (2v2).
- * Players with fewer games are prioritised.
- * Team pairings rotate to avoid always-same-partner situations.
- *
- * @param {Array<{name: string, gamesPlayed: number}>} players
- * @param {number} rounds - number of matches to generate
- * @param {number} startId - first match ID
+ * Players with fewer games are prioritised; ties broken randomly each round.
+ * Team pairings rotate to avoid always-same-partner repetition.
  */
 export function generateDoublesMatches(players, rounds, startId = 1) {
   if (players.length < 4) return [];
 
-  const playCount = Object.fromEntries(players.map(p => [p.name, p.gamesPlayed]));
-  const pairCount = {}; // how many times two players have been on the same team
+  const heap = new MinHeap(byCnt);
+  for (const p of players) heap.push(entry(p.name, p.gamesPlayed));
 
-  const pairKey = (a, b) => [a, b].sort().join('||');
+  const pairCnt = {};
 
   const matches = [];
   for (let r = 0; r < rounds; r++) {
-    // Pick 4 players with fewest games, breaking ties randomly
-    const sorted = [...players]
-      .map(p => p.name)
-      .sort((a, b) => {
-        const diff = playCount[a] - playCount[b];
-        return diff !== 0 ? diff : Math.random() - 0.5;
-      });
+    // Pop the 4 lowest-count players (re-jittered on each push-back → fresh randomness)
+    const pool = [heap.pop(), heap.pop(), heap.pop(), heap.pop()];
 
-    const pool = sorted.slice(0, 4);
-
-    // Evaluate 3 possible team splits; prefer the one with fewest repeated pairings
+    // Evaluate all 3 possible 2v2 splits; pick the one with fewest repeated pairings
     const splits = [
-      { t1: [pool[0], pool[1]], t2: [pool[2], pool[3]] },
-      { t1: [pool[0], pool[2]], t2: [pool[1], pool[3]] },
-      { t1: [pool[0], pool[3]], t2: [pool[1], pool[2]] },
+      { t1: [pool[0].name, pool[1].name], t2: [pool[2].name, pool[3].name] },
+      { t1: [pool[0].name, pool[2].name], t2: [pool[1].name, pool[3].name] },
+      { t1: [pool[0].name, pool[3].name], t2: [pool[1].name, pool[2].name] },
     ];
-
-    const splitScore = ({ t1, t2 }) =>
-      (pairCount[pairKey(t1[0], t1[1])] || 0) +
-      (pairCount[pairKey(t2[0], t2[1])] || 0);
-
-    splits.sort((a, b) => splitScore(a) - splitScore(b));
+    const score = ({ t1, t2 }) =>
+      (pairCnt[pairKey(t1[0], t1[1])] || 0) + (pairCnt[pairKey(t2[0], t2[1])] || 0);
+    splits.sort((a, b) => score(a) - score(b));
     const { t1, t2 } = splits[0];
 
     // Update bookkeeping
-    pairCount[pairKey(t1[0], t1[1])] = (pairCount[pairKey(t1[0], t1[1])] || 0) + 1;
-    pairCount[pairKey(t2[0], t2[1])] = (pairCount[pairKey(t2[0], t2[1])] || 0) + 1;
-    pool.forEach(n => playCount[n]++);
+    pairCnt[pairKey(t1[0], t1[1])] = (pairCnt[pairKey(t1[0], t1[1])] || 0) + 1;
+    pairCnt[pairKey(t2[0], t2[1])] = (pairCnt[pairKey(t2[0], t2[1])] || 0) + 1;
+    const played = new Set([...t1, ...t2]);
+
+    // Push back with updated counts + fresh jitter for next-round tiebreaking
+    for (const p of pool) heap.push(entry(p.name, p.cnt + (played.has(p.name) ? 1 : 0)));
 
     matches.push({
       id: startId + r,
@@ -68,50 +115,44 @@ export function generateDoublesMatches(players, rounds, startId = 1) {
 
 /**
  * Generate singles matches (1v1).
- * Prioritises players with fewest games, then matchups that haven't happened yet.
- *
- * @param {Array<{name: string, gamesPlayed: number}>} players
- * @param {number} rounds
- * @param {number} startId
+ * Pulls the top-8 lowest-count candidates from the heap, finds the pair with
+ * fewest repeated matchups (and lowest combined count), then pushes all back.
  */
 export function generateSinglesMatches(players, rounds, startId = 1) {
   if (players.length < 2) return [];
 
-  const playCount = Object.fromEntries(players.map(p => [p.name, p.gamesPlayed]));
-  const matchupCount = {}; // times player A has faced player B
-  const matchupKey = (a, b) => [a, b].sort().join('||');
+  const heap = new MinHeap(byCnt);
+  for (const p of players) heap.push(entry(p.name, p.gamesPlayed));
+
+  const matchupCnt = {};
 
   const matches = [];
   for (let r = 0; r < rounds; r++) {
-    const names = players.map(p => p.name);
-    const candidates = [...names].sort((a, b) => {
-      const diff = playCount[a] - playCount[b];
-      return diff !== 0 ? diff : Math.random() - 0.5;
-    }).slice(0, Math.min(names.length, 8));
+    // Drain up to 8 candidates (or all players if fewer)
+    const k = Math.min(heap.size, 8);
+    const candidates = [];
+    for (let i = 0; i < k; i++) candidates.push(heap.pop());
 
-    // Find the pair with lowest (matchup repetition × 100 + combined play count)
-    let bestP1 = null, bestP2 = null, bestScore = Infinity;
+    // Find the pair minimising (matchup repetition × 100 + combined count)
+    let p1 = null, p2 = null, best = Infinity;
     for (let i = 0; i < candidates.length; i++) {
       for (let j = i + 1; j < candidates.length; j++) {
-        const key = matchupKey(candidates[i], candidates[j]);
-        const score = (matchupCount[key] || 0) * 100 + playCount[candidates[i]] + playCount[candidates[j]];
-        if (score < bestScore) {
-          bestScore = score;
-          bestP1 = candidates[i];
-          bestP2 = candidates[j];
-        }
+        const key = pairKey(candidates[i].name, candidates[j].name);
+        const sc = (matchupCnt[key] || 0) * 100 + candidates[i].cnt + candidates[j].cnt;
+        if (sc < best) { best = sc; p1 = candidates[i]; p2 = candidates[j]; }
       }
     }
 
-    const key = matchupKey(bestP1, bestP2);
-    matchupCount[key] = (matchupCount[key] || 0) + 1;
-    playCount[bestP1]++;
-    playCount[bestP2]++;
+    matchupCnt[pairKey(p1.name, p2.name)] = (matchupCnt[pairKey(p1.name, p2.name)] || 0) + 1;
+    const played = new Set([p1.name, p2.name]);
+
+    // Push all candidates back with updated counts + fresh jitter
+    for (const c of candidates) heap.push(entry(c.name, c.cnt + (played.has(c.name) ? 1 : 0)));
 
     matches.push({
       id: startId + r,
-      team1: [bestP1],
-      team2: [bestP2],
+      team1: [p1.name],
+      team2: [p2.name],
       format: 'singles',
       status: 'pending',
       winner: null,
@@ -138,8 +179,6 @@ export function generateMixedMatches(players, rounds, startId = 1) {
     if (di < doubles.length) mixed.push(doubles[di++]);
     if (si < singles.length) mixed.push(singles[si++]);
   }
-
-  // Reassign IDs sequentially
   return mixed.map((m, i) => ({ ...m, id: startId + i }));
 }
 
@@ -148,7 +187,7 @@ export function generateMixedMatches(players, rounds, startId = 1) {
  */
 export function generateMatches(players, rounds, format, startId = 1) {
   if (format === 'singles') return generateSinglesMatches(players, rounds, startId);
-  if (format === 'both') return generateMixedMatches(players, rounds, startId);
+  if (format === 'both')    return generateMixedMatches(players, rounds, startId);
   return generateDoublesMatches(players, rounds, startId);
 }
 
@@ -163,71 +202,43 @@ export function calculateInitialRounds(playerCount, format) {
 
 /**
  * Regenerate only the pending (future) matches after an edit.
- * Completed matches and play counts are preserved.
- *
- * @param {Array} allMatches - full match list (done + active + pending)
- * @param {number} activeIndex - index of the current match being edited/played
- * @param {Array<{name: string, gamesPlayed: number}>} players
- * @param {string} format
  */
 export function regeneratePendingMatches(allMatches, activeIndex, players, format) {
-  const pendingCount = allMatches.length - activeIndex - 1; // keep same total
-  const nextId = (allMatches[activeIndex]?.id ?? activeIndex) + 1;
-
-  const pending = generateMatches(players, Math.max(pendingCount, 5), format, nextId);
-
-  // Reassign IDs cleanly
+  const pendingCount = allMatches.length - activeIndex - 1;
   const base = allMatches[activeIndex]?.id ?? activeIndex;
+  const pending = generateMatches(players, Math.max(pendingCount, 5), format, base + 1);
   return pending.map((m, i) => ({ ...m, id: base + 1 + i }));
 }
 
 /**
  * Regenerate non-pinned pending matches after `afterIndex`, preserving pinned ones.
  *
- * Pinned matches (manually edited) stay in place. The fairness algorithm fills
- * the unpinned slots, accounting for players already committed in pinned matches.
- *
- * @param {Array} allMatches - full match array
- * @param {number} afterIndex - regenerate matches strictly after this index
- * @param {Array<{name: string, gamesPlayed: number}>} players
- * @param {string} format
+ * Pinned matches (manually edited) stay in place.  The heap fills the unpinned
+ * slots, accounting for players already committed in pinned matches.
  */
 export function regenerateUnpinnedMatches(allMatches, afterIndex, players, format) {
   const pending = allMatches.slice(afterIndex + 1);
-  if (pending.length === 0) return [];
+  if (!pending.length) return [];
 
-  const pinned = pending.filter(m => m.pinned);
-  const unpinnedCount = pending.length - pinned.length;
+  const unpinnedCount = pending.filter(m => !m.pinned).length;
 
-  // Adjust virtual gamesPlayed to account for players committed in pinned matches
+  // Inflate virtual gamesPlayed to account for players locked into pinned matches
   const virtualPlayers = players.map(p => ({ ...p }));
-  for (const m of pinned) {
-    const participants = [...m.team1, ...m.team2];
+  for (const m of pending.filter(m => m.pinned)) {
     for (const vp of virtualPlayers) {
-      if (participants.includes(vp.name)) vp.gamesPlayed++;
+      if ([...m.team1, ...m.team2].includes(vp.name)) vp.gamesPlayed++;
     }
   }
 
-  // Generate fresh matches for unpinned slots
-  const baseId = allMatches[afterIndex]?.id ?? afterIndex;
-  const newUnpinned = generateMatches(
-    virtualPlayers,
-    Math.max(unpinnedCount, 3),
-    format,
-    baseId + 1,
-  );
+  const base = allMatches[afterIndex]?.id ?? afterIndex;
+  const fresh = generateMatches(virtualPlayers, Math.max(unpinnedCount, 3), format, base + 1);
 
-  // Interleave: keep pinned at their positions, fill gaps with newly generated
+  // Interleave: keep pinned at their relative positions, fill gaps with fresh matches
   const result = [];
-  let unpinnedIdx = 0;
+  let fi = 0;
   for (const m of pending) {
-    if (m.pinned) {
-      result.push(m);
-    } else {
-      if (unpinnedIdx < newUnpinned.length) result.push(newUnpinned[unpinnedIdx++]);
-    }
+    result.push(m.pinned ? m : (fresh[fi++] ?? null));
   }
 
-  // Reassign IDs sequentially
-  return result.map((m, i) => ({ ...m, id: baseId + 1 + i }));
+  return result.filter(Boolean).map((m, i) => ({ ...m, id: base + 1 + i }));
 }
