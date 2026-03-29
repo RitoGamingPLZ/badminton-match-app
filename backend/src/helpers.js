@@ -4,6 +4,7 @@
 
 import pRetry, { AbortError } from 'p-retry';
 import { VersionConflictError } from './db/index.js';
+import { applyEvent } from './events/applyEvent.js';
 
 export const MAX_UNDO = 10;
 export const MAX_LOG  = 50;
@@ -108,7 +109,8 @@ export async function withTransaction(db, code, req, res, validate, makeCommand)
 
     const command      = makeCommand(req, room);
     const snapshot     = makeSnapshot(room);
-    const { patch, logEntry } = command.execute(room);
+    const { event, logEntry } = command.execute(room);
+    const patch        = applyEvent(room, event);
     const undoStack    = pushUndo(room, snapshot);
     const operationLog = pushLog(room, logEntry);
 

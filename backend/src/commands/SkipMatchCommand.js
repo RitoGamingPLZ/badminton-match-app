@@ -1,25 +1,20 @@
 /**
  * One player opts out of the current match.
  *
- * The skipping player is added to the unavailable queue with
- * availableFrom = currentMatchIndex + 1, so they cannot be selected
- * as a substitute for subsequent skips in the same match.
+ * Decides which event to emit based on bench availability:
+ *   — PLAYER_SKIPPED_WITH_SUB  if a bench player can step in
+ *   — MATCH_SKIPPED            if no substitute is available
  *
- * If a bench player is available (not on court, not in the unavailable queue):
- *   — The bench player replaces the skipper; the match is regenerated in-place.
- *   — currentMatchIndex does NOT advance.
- *
- * If no bench player is available:
- *   — The match is marked skipped and currentMatchIndex advances.
- *   — The unavailable queue is cleaned up (all players with availableFrom <= nextIdx
- *     are released back to the available pool).
+ * State transition (substitute selection, match regeneration, queue update)
+ * is handled by applyEvent in events/applyEvent.js.
  */
 
-import { generateMatches } from '../matchGen.js';
 import { Command } from './Command.js';
+import { PLAYER_SKIPPED_WITH_SUB, MATCH_SKIPPED } from '../events/types.js';
 
 export class SkipMatchCommand extends Command {
   constructor(playerName) {
+    super();
     this.playerName = playerName;
   }
 
@@ -35,12 +30,6 @@ export class SkipMatchCommand extends Command {
         .map(p => p.name)
     );
 
-    // Add the skipping player to the queue
-    const newUnavailablePlayers = [
-      ...(room.unavailablePlayers ?? []),
-      { name: playerName, availableFrom: idx + 1 },
-    ];
-
     // Bench = in room, not on court, not already unavailable (and not the skipper)
     const inMatch = new Set([...match.team1, ...match.team2]);
     const bench   = room.players
@@ -48,26 +37,8 @@ export class SkipMatchCommand extends Command {
       .sort((a, b) => a.gamesPlayed - b.gamesPlayed);
 
     if (bench.length === 0) {
-      // No substitute — skip the whole match and advance
-      const updatedMatches = [...room.matches];
-      updatedMatches[idx] = { ...match, status: 'skipped', winner: null };
-
-      const nextIdx = idx + 1;
-      if (nextIdx < updatedMatches.length) {
-        updatedMatches[nextIdx] = { ...updatedMatches[nextIdx], status: 'active' };
-      }
-
-      // Release players whose sit-out period ends with this match advancing
-      const unavailablePlayers = newUnavailablePlayers.filter(
-        p => p.availableFrom > nextIdx
-      );
-
       return {
-        patch: {
-          matches:             updatedMatches,
-          currentMatchIndex:   nextIdx,
-          unavailablePlayers,
-        },
+        event: { type: MATCH_SKIPPED, matchIndex: idx, playerName },
         logEntry: {
           type:        'match_skipped',
           matchNum:    idx + 1,
@@ -76,30 +47,9 @@ export class SkipMatchCommand extends Command {
       };
     }
 
-    // Sub in the bench player with fewest games played
-    const sub  = bench[0];
-    const pool = [...match.team1, ...match.team2]
-      .filter(n => n !== playerName)
-      .map(name => {
-        const p = room.players.find(rp => rp.name === name);
-        return { name, gamesPlayed: p?.gamesPlayed ?? 0 };
-      });
-    pool.push({ name: sub.name, gamesPlayed: sub.gamesPlayed });
-
-    const [newMatch]     = generateMatches(pool, 1, match.id);
-    const updatedMatches = [...room.matches];
-    updatedMatches[idx]  = {
-      ...(newMatch ?? match),
-      id:     match.id,
-      status: 'active',
-      winner: null,
-    };
-
+    const sub = bench[0];
     return {
-      patch: {
-        matches:             updatedMatches,
-        unavailablePlayers:  newUnavailablePlayers,
-      },
+      event: { type: PLAYER_SKIPPED_WITH_SUB, matchIndex: idx, playerName, substituteName: sub.name },
       logEntry: {
         type:        'match_skipped',
         matchNum:    idx + 1,

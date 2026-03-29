@@ -3,14 +3,16 @@
  *
  * Subclasses must override execute(room) and return:
  *   {
- *     patch:    object  — fields to merge into the saved room state
+ *     event:    object  — domain event describing what happened (passed to applyEvent)
  *     logEntry: object  — { type, matchNum, description } appended to operationLog
  *   }
+ *
+ * State transitions are handled by applyEvent (events/applyEvent.js), not by commands.
  */
 export class Command {
   /**
    * @param {object} room - current room state
-   * @returns {{ patch: object, logEntry: object }}
+   * @returns {{ event: object, logEntry: object }}
    */
   execute(room) {  // eslint-disable-line no-unused-vars
     throw new Error(`${this.constructor.name} must implement execute(room)`);
