@@ -43,3 +43,9 @@ variable "backend_image" {
   description = "Docker image for the backend (e.g. gcr.io/PROJECT/badminton-backend:latest)"
   type        = string
 }
+
+variable "bucket_name" {
+  description = "GCS bucket name for frontend hosting — must be globally unique across all of GCS"
+  type        = string
+  default     = "badminton-match-app-frontend"
+}

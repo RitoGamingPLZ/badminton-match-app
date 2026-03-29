@@ -51,15 +51,18 @@ jobs:
           terraform_version: '~1.7'
 
       - name: Terraform Init
-        working-directory: infra
+        working-directory: infra/gcp
         run: terraform init
 
       - name: Terraform Apply
-        working-directory: infra
+        working-directory: infra/gcp
         run: |
           terraform apply -auto-approve \
-            -var="gcp_project=${{ secrets.GCP_PROJECT }}" \
-            -var="bucket_name=${{ secrets.GCS_BUCKET_NAME }}"
+            -var="project_id=${{ secrets.GCP_PROJECT }}" \
+            -var="bucket_name=${{ secrets.GCS_BUCKET_NAME }}" \
+            -var="backend_image=placeholder" \
+            -target=google_storage_bucket.frontend \
+            -target=google_storage_bucket_iam_member.public_read
 
   deploy-frontend:
     name: Frontend — Deploy to GCS
