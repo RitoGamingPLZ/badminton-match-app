@@ -58,7 +58,7 @@ const entry = (name, cnt) => ({ name, cnt, jit: Math.random() });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const pairKey = (a, b) => (a < b ? `${a}||${b}` : `${b}||${a}`);
+const pairKey = (a, b) => JSON.stringify(a < b ? [a, b] : [b, a]);
 
 // ── Generator ─────────────────────────────────────────────────────────────────
 

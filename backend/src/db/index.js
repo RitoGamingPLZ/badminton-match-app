@@ -31,7 +31,7 @@ let _repo = null;
 export function getRepository() {
   if (_repo) return _repo;
 
-  const driver = (process.env.DB_DRIVER || 'dynamodb').toLowerCase();
+  const driver = (process.env.DB_DRIVER || 'mongodb').toLowerCase();
 
   switch (driver) {
     case 'mongodb':
@@ -49,8 +49,7 @@ export function getRepository() {
       _repo = new InMemoryRepository();
       break;
 
-    default: // 'dynamodb'
-      _repo = new DynamoRepository();
+    default:
       break;
   }
 

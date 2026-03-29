@@ -1,37 +1,29 @@
 /**
- * Express application — assembles all routes for local development.
- *
- * Route handlers live in dedicated service modules:
- *   services/roomService.js   — room lifecycle (create, join, get, start, addMatches)
- *   services/matchService.js  — match mutations (done, skip, edit)
- *   services/sessionService.js — session utilities (undo, SSE events)
- *
- * Commands live in commands/:
- *   commands/MatchDoneCommand.js
- *   commands/SkipMatchCommand.js
- *   commands/EditMatchCommand.js
+ * Express application — local development and any Node.js deployment
+ * (Cloud Run, Docker, VPS, etc.).
  */
 
 import express from 'express';
-import { corsHeaders } from './helpers.js';
-import { createRoom, joinRoom, getRoom, startSession, addMatches } from './services/roomService.js';
-import { markMatchDone, skipMatch, editMatch } from './services/matchService.js';
-import { undoLastOperation, sseEvents } from './services/sessionService.js';
+import { corsHeaders } from './config.js';
+import { ServiceError } from './errors.js';
+import { createRoom, joinRoom, getRoom, startSession, addMatches } from './routes/rooms.js';
+import { markMatchDone, skipMatch, editMatch } from './routes/matches.js';
+import { undoLastOperation } from './routes/session.js';
+import { sseEvents } from './routes/sse.js';
 
 const app = express();
 
 app.use(express.json());
 
-// CORS + preflight
+// ── CORS + preflight ──────────────────────────────────────────────────────────
+
 app.use((req, res, next) => {
-  Object.entries(corsHeaders).forEach(([k, v]) => res.setHeader(k, v));
+  for (const [k, v] of Object.entries(corsHeaders)) res.setHeader(k, v);
   if (req.method === 'OPTIONS') return res.status(204).end();
   next();
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.post('/rooms',                   createRoom);
 app.get('/rooms/:code',              getRoom);
@@ -50,6 +42,7 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
+  if (err instanceof ServiceError) return res.status(err.status).json({ error: err.message });
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });

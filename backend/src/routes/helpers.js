@@ -1,57 +1,30 @@
 /**
- * Lambda-specific request/response helpers shared across route modules.
+ * Shared helpers for Express route handlers.
  */
 
-import { corsHeaders, safeRoom, makeSnapshot, pushUndo, pushLog } from '../helpers.js';
-import { getRepository, VersionConflictError } from '../db/index.js';
-
-export const db = getRepository();
-
-// ── Response helpers ──────────────────────────────────────────────────────────
-
-export function jsonResponse(stream, statusCode, body) {
-  // eslint-disable-next-line no-undef
-  const s = awslambda.HttpResponseStream.from(stream, {
-    statusCode,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
-  });
-  s.write(JSON.stringify(body));
-  s.end();
+/** Extract the host token from request headers or body. */
+export function hostToken(req) {
+  return req.headers['x-host-token'] || req.body?.hostToken || '';
 }
 
-export function err(stream, statusCode, message) {
-  jsonResponse(stream, statusCode, { error: message });
+/** Write a single structured JSON log line per request. */
+export function logRequest(method, path, status) {
+  console.log(JSON.stringify({ ts: new Date().toISOString(), method, path, status }));
 }
 
-// ── Request helpers ───────────────────────────────────────────────────────────
-
-export function parseBody(event) {
-  try { return JSON.parse(event.body || '{}'); } catch { return {}; }
-}
-
-export function hostToken(event) {
-  return event.headers?.['x-host-token'] || parseBody(event).hostToken || '';
-}
-
-// ── Command executor ──────────────────────────────────────────────────────────
-
-export async function runCommand(code, command, room, expectedVersion, stream) {
-  const snapshot     = makeSnapshot(room);
-  const { patch, logEntry } = command.execute(room);
-  const undoStack    = pushUndo(room, snapshot);
-  const operationLog = pushLog(room, logEntry);
-
-  try {
-    const updated = await db.saveState(
-      code,
-      { ...patch, undoStack, operationLog },
-      expectedVersion,
-    );
-    jsonResponse(stream, 200, { room: safeRoom(updated) });
-  } catch (e) {
-    if (e instanceof VersionConflictError) {
-      return err(stream, 409, 'Version conflict — reload and retry');
-    }
-    throw e;
-  }
+/**
+ * Wrap a route handler so it handles try/catch/next, logging, and JSON
+ * response in one place.
+ *
+ * @param {Function} fn     - async (req, res) => result
+ * @param {number}   status - HTTP status code (default 200)
+ */
+export function wrapRoute(fn, status = 200) {
+  return async (req, res, next) => {
+    try {
+      const result = await fn(req, res);
+      logRequest(req.method, req.path, status);
+      res.status(status).json(result);
+    } catch (e) { next(e); }
+  };
 }

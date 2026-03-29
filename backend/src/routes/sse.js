@@ -1,56 +1,38 @@
 /**
- * SSE (Server-Sent Events) handler for live room updates.
+ * SSE (Server-Sent Events) handler.
  *
- * Bypasses Express and writes directly to the Lambda response stream
- * to support long-lived connections beyond the API Gateway 29s limit.
+ * Owns the HTTP transport layer only — the polling loop lives in
+ * SessionService.watchRoom(), which yields typed event descriptors.
  */
 
-import { corsHeaders, safeRoom } from '../helpers.js';
-import { db } from './helpers.js';
+import { corsHeaders } from '../config.js';
+import { sessionService } from '../services/index.js';
 
-const SSE_MAX_MS  = 10 * 60 * 1000;
-const SSE_POLL_MS = 2000;
-const SSE_PING_MS = 30 * 1000;
+export async function sseEvents(req, res) {
+  const { code }     = req.params;
+  const startVersion = parseInt(req.query.version ?? '0', 10);
 
-export async function handleSSE(code, event, responseStream) {
-  let clientVersion = parseInt(event.queryStringParameters?.version ?? '0', 10);
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  for (const [k, v] of Object.entries(corsHeaders)) res.setHeader(k, v);
+  res.flushHeaders();
 
-  // eslint-disable-next-line no-undef
-  const stream = awslambda.HttpResponseStream.from(responseStream, {
-    statusCode: 200,
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-      ...corsHeaders,
-    },
-  });
-
-  const write = data => { try { stream.write(data); } catch { /* client disconnected */ } };
+  const write = data => { try { res.write(data); } catch { /* client disconnected */ } };
   write(`: connected to room ${code}\n\n`);
 
-  const startTime = Date.now();
-  let lastPing    = startTime;
-
   try {
-    while (Date.now() - startTime < SSE_MAX_MS) {
-      const room = await db.getRoom(code);
-      if (!room) { write('event: error\ndata: {"message":"Room not found"}\n\n'); break; }
-
-      if (room.version > clientVersion) {
-        clientVersion = room.version;
-        write(`data: ${JSON.stringify(safeRoom(room))}\n\n`);
-      }
-
-      const now = Date.now();
-      if (now - lastPing >= SSE_PING_MS) { write(': ping\n\n'); lastPing = now; }
-
-      await new Promise(resolve => setTimeout(resolve, SSE_POLL_MS));
+    for await (const event of sessionService.watchRoom(code, startVersion)) {
+      if (res.destroyed) break;
+      if (event.type === 'data')  { write(`data: ${JSON.stringify(event.room)}\n\n`); continue; }
+      if (event.type === 'ping')  { write(': ping\n\n'); continue; }
+      if (event.type === 'error') { write(`event: error\ndata: ${JSON.stringify({ message: event.message })}\n\n`); break; }
+      if (event.type === 'close') break;
     }
   } catch (error) {
     write(`event: error\ndata: ${JSON.stringify({ message: error.message })}\n\n`);
   }
 
   write('event: close\ndata: {}\n\n');
-  stream.end();
+  res.end();
 }

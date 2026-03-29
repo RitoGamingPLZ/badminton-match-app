@@ -1,17 +1,16 @@
-variable "aws_region" {
-  description = "AWS region to deploy into"
+variable "gcp_project" {
+  description = "GCP project ID"
   type        = string
-  default     = "ap-southeast-1"
 }
 
-variable "allowed_origin" {
-  description = "CORS allowed origin — set to your frontend URL in production (e.g. https://your-app.com)"
+variable "gcp_region" {
+  description = "GCS bucket location (multi-region: US, EU, ASIA; or single-region: us-central1, etc.)"
   type        = string
-  default     = "*"
+  default     = "US"
 }
 
-variable "lambda_zip_path" {
-  description = "Path to the built Lambda zip file (relative to infra/). Built by CI before terraform apply."
+variable "bucket_name" {
+  description = "GCS bucket name for frontend hosting — must be globally unique across all of GCS"
   type        = string
-  default     = "../backend/dist/lambda.zip"
+  default     = "badminton-match-app-frontend"
 }

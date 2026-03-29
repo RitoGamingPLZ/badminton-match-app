@@ -11,6 +11,7 @@
 
 import { MongoClient } from 'mongodb';
 import { VersionConflictError } from './errors.js';
+import { patchToSet } from './patch.js';
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
@@ -78,15 +79,7 @@ export class MongoRepository {
   // ── Full-state save ─────────────────────────────────────────────────────────
 
   async saveState(code, patch, expectedVersion) {
-    const fields = {};
-    if (patch.matches !== undefined)           fields.matches           = patch.matches;
-    if (patch.players !== undefined)           fields.players           = patch.players;
-    if (patch.currentMatchIndex !== undefined) fields.currentMatchIndex = patch.currentMatchIndex;
-    if (patch.undoStack !== undefined)           fields.undoStack           = patch.undoStack;
-    if (patch.operationLog !== undefined)        fields.operationLog        = patch.operationLog;
-    if (patch.unavailablePlayers !== undefined)  fields.unavailablePlayers  = patch.unavailablePlayers;
-
-    return this.#versionedUpdate(code, expectedVersion, { $set: fields });
+    return this.#versionedUpdate(code, expectedVersion, { $set: patchToSet(patch) });
   }
 
   // ── Convenience wrappers ────────────────────────────────────────────────────

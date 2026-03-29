@@ -2,20 +2,14 @@
   "name": "badminton-backend",
   "version": "1.0.0",
   "type": "module",
-  "description": "AWS Lambda backend for Badminton Match App",
+  "description": "Node.js REST + SSE backend for Badminton Match App",
   "scripts": {
-    "build": "node build.mjs",
     "dev": "node src/server.js"
   },
   "dependencies": {
-    "@aws-sdk/client-dynamodb": "^3.540.0",
-    "@aws-sdk/lib-dynamodb": "^3.540.0",
     "@google-cloud/firestore": "^7.0.0",
     "express": "^4.19.0",
     "mongodb": "^6.5.0",
     "p-retry": "^8.0.0"
-  },
-  "devDependencies": {
-    "esbuild": "^0.20.0"
   }
 }

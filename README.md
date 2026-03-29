@@ -15,31 +15,34 @@ badminton-match-app/
 │   ├── Dockerfile          Local dev container (vite dev)
 │   └── README.md
 │
-├── backend/                Node.js REST + SSE API
+├── backend/                Node.js REST + SSE API (Express)
 │   ├── src/
-│   │   ├── handler.js      All routes — REST + SSE streaming
-│   │   ├── server.js       Local HTTP server (no Lambda runtime needed)
-│   │   ├── commands.js     Command pattern — MatchDone, Skip, EditMatch
+│   │   ├── app.js          Express app (local dev + Cloud Run / any Node host)
+│   │   ├── server.js       Local HTTP server entry point
+│   │   ├── config.js       Shared constants (CORS headers, limits)
+│   │   ├── errors.js       Centralised error message constants
+│   │   ├── roomUtils.js    Room serialisation + undo/log stack helpers
 │   │   ├── matchGen.js     Fair match generation (MinHeap, O(log n))
+│   │   ├── commands/       Command pattern — MatchDone, Skip, EditMatch
+│   │   ├── routes/         Express route handlers + SSE
+│   │   ├── validation/     Input + room-state validators
 │   │   └── db/
-│   │       ├── index.js            Repository factory (DB_DRIVER env var)
-│   │       ├── DynamoRepository.js AWS DynamoDB (production / Lambda)
-│   │       ├── MongoRepository.js  MongoDB (docker-compose / self-hosted)
+│   │       ├── index.js              Repository factory (DB_DRIVER env var)
+│   │       ├── transaction.js        withRetry / withTransaction helpers
+│   │       ├── MongoRepository.js    MongoDB (default; docker-compose / Cloud Run)
 │   │       └── InMemoryRepository.js Map-backed (tests / zero-dep local)
 │   ├── Dockerfile          Local dev container (node server.js)
 │   └── README.md
 │
-├── infra/                  Terraform — AWS Lambda + DynamoDB + S3
-│   ├── main.tf             Provider + remote state (S3 backend)
-│   ├── lambda.tf           Lambda arm64, IAM, Function URL (RESPONSE_STREAM)
-│   ├── dynamodb.tf         BadmintonRooms table, PAY_PER_REQUEST, TTL
-│   ├── s3.tf               Frontend static hosting bucket + CORS
+├── infra/                  Terraform — GCP frontend hosting (GCS)
+│   ├── main.tf             GCP provider + remote state config
+│   ├── storage.tf          GCS bucket — public static website hosting
 │   ├── variables.tf
 │   └── outputs.tf
 │
 ├── .github/workflows/
 │   ├── ci.yml              Build + terraform validate/fmt on PRs
-│   └── deploy.yml          Build → terraform apply → S3 sync on merge to main
+│   └── deploy.yml          Build → terraform apply (GCS) → gsutil sync on merge to main
 │
 ├── docker-compose.yml      Full local stack (frontend + backend + MongoDB)
 └── package.json            npm workspace root
@@ -52,7 +55,7 @@ badminton-match-app/
 | Feature | Details |
 |---|---|
 | **Create & join** | Host creates a room with a 4-digit code; players join on their own phones |
-| **Doubles / Singles / Both** | Format chosen in lobby; generates a full fair schedule |
+| **Doubles** | Format is doubles (2v2); generates a full fair schedule |
 | **Fair scheduling** | MinHeap-based O(log n) selection — players with fewest games go first; team splits minimise repeated pairings |
 | **Skip match** | Skip the active match without awarding points |
 | **Undo** | Undo the last operation (capped at 10 levels) |
@@ -60,8 +63,8 @@ badminton-match-app/
 | **Operation history** | Full log of match results, skips and edits (last 50) |
 | **Live updates** | SSE (Server-Sent Events) — every client auto-syncs on every version change |
 | **Optimistic locking** | All writes carry a `version`; conflicts return HTTP 409 |
-| **Auto-expiry** | Rooms expire after 24 hours (DynamoDB TTL / MongoDB TTL index) |
-| **DB-agnostic backend** | Swap between DynamoDB, MongoDB, or in-memory via `DB_DRIVER` env var |
+| **Auto-expiry** | Rooms expire after 24 hours (MongoDB TTL index / in-memory lazy eviction) |
+| **DB-agnostic backend** | Swap between MongoDB and in-memory via `DB_DRIVER` env var |
 
 ---
 
@@ -86,14 +89,6 @@ docker compose up
 
 Source files are bind-mounted into the frontend container so hot-module replacement works without rebuilding the image.
 
-#### Switch to DynamoDB Local
-
-```bash
-DB_DRIVER=dynamodb docker compose --profile dynamodb up
-```
-
-This starts DynamoDB Local on port 8000 and automatically creates the `BadmintonRooms` table.
-
 #### In-memory (no database)
 
 ```bash
@@ -110,10 +105,8 @@ State lives in process memory and resets on restart — useful for quick experim
 npm install          # installs all workspaces
 
 # Backend — pick a driver:
-DB_DRIVER=memory npm run dev --workspace=backend          # no DB needed
-DB_DRIVER=mongodb npm run dev --workspace=backend         # local MongoDB on 27017
-DYNAMODB_ENDPOINT=http://localhost:8000 \
-  DB_DRIVER=dynamodb npm run dev --workspace=backend      # DynamoDB Local
+DB_DRIVER=memory npm run dev --workspace=backend    # no DB needed
+DB_DRIVER=mongodb npm run dev --workspace=backend   # local MongoDB on 27017
 
 # Frontend (separate terminal)
 npm run dev --workspace=frontend
@@ -123,33 +116,34 @@ Open http://localhost:5173. The Vite dev server proxies `/api/*` → `http://loc
 
 ---
 
-## Deployment (AWS via Terraform)
+## Deployment (GCP — frontend via GCS)
 
-Infrastructure is managed with Terraform in `infra/`. CI/CD is handled by GitHub Actions.
+Frontend is hosted on Google Cloud Storage. Backend can run on Cloud Run, any VPS, or any platform that supports Node.js + MongoDB.
+
+Infrastructure for the GCS bucket is managed with Terraform in `infra/`. CI/CD is handled by GitHub Actions.
 
 ### First-time setup
 
-1. **Bootstrap remote state** — create an S3 bucket and DynamoDB lock table manually, then uncomment the `backend "s3"` block in `infra/main.tf`.
+1. **Bootstrap remote state** (optional) — create a GCS bucket manually, then uncomment the `backend "gcs"` block in `infra/main.tf`.
 
 2. **Add GitHub Actions secrets:**
 
 | Secret | Description |
 |---|---|
-| `AWS_ACCESS_KEY_ID` | IAM credentials with Lambda + DynamoDB + S3 access |
-| `AWS_SECRET_ACCESS_KEY` | Corresponding secret key |
-| `AWS_REGION` | Target region (e.g. `ap-southeast-1`) |
-| `VITE_API_BASE` | Lambda Function URL (set after first deploy) |
-| `ALLOWED_ORIGIN` | Frontend URL for CORS (e.g. `https://your-app.com`) |
+| `GCP_PROJECT` | GCP project ID |
+| `GCP_SA_KEY` | Service Account JSON key (Storage Admin role) |
+| `GCS_BUCKET_NAME` | GCS bucket name (must be globally unique) |
+| `VITE_API_BASE` | Backend API URL for the frontend build |
 
 3. **Push to `main`** — the deploy workflow runs automatically:
-   - Builds the Lambda zip (esbuild) and the frontend (Vite)
-   - Runs `terraform apply` (Lambda + DynamoDB + S3)
-   - Syncs the frontend build to S3
+   - Builds the frontend (Vite)
+   - Runs `terraform apply` (creates/updates the GCS bucket)
+   - Syncs the frontend build to GCS via `gsutil`
 
 ### CI pipeline (on every PR)
 
 - Frontend: `vite build`
-- Backend: esbuild Lambda bundle
+- Backend: Node.js syntax check
 - Terraform: `terraform validate` + `terraform fmt -check -recursive`
 
 ---
@@ -159,7 +153,7 @@ Infrastructure is managed with Terraform in `infra/`. CI/CD is handled by GitHub
 ### Request flow
 
 ```
-Browser  →  POST /rooms/1234/match/done  →  Lambda / Node server
+Browser  →  POST /rooms/1234/match/done  →  Node.js Express server
                                          →  DB write (version: 5 → 6)
 Browser  ←  SSE: room state v6           ←  SSE handler polls DB every 2s
 ```
@@ -169,17 +163,16 @@ Browser  ←  SSE: room state v6           ←  SSE handler polls DB every 2s
 - Each client opens an `EventSource` to `GET /rooms/:code/events`
 - The SSE handler polls the database every 2 seconds and streams a `data:` event whenever the room `version` increases
 - If a tab is backgrounded and SSE drops, a `GET /rooms/:code` on re-focus catches up
-- Lambda Function URL with `InvokeMode: RESPONSE_STREAM` supports connections up to 15 minutes
 
 ### Command pattern
 
-All state-mutating operations are Command objects (`backend/src/commands.js`):
+All state-mutating operations are Command objects in `backend/src/commands/`:
 
 ```
 command.execute(room) → { patch, logEntry }
 ```
 
-A central `runCommand()` in `handler.js` handles undo-snapshot and operation-log bookkeeping for every command uniformly. Undo restores a full state snapshot (not re-execution).
+A central `runCommand()` in `routes/helpers.js` handles undo-snapshot and operation-log bookkeeping for every command uniformly. Undo restores a full state snapshot (not re-execution).
 
 ### Database abstraction
 
@@ -187,8 +180,7 @@ A central `runCommand()` in `handler.js` handles undo-snapshot and operation-log
 
 | Driver | Class | Use case |
 |---|---|---|
-| `dynamodb` (default) | `DynamoRepository` | Lambda / production |
-| `mongodb` | `MongoRepository` | Docker Compose / self-hosted |
+| `mongodb` _(default)_ | `MongoRepository` | Docker Compose / Cloud Run / self-hosted |
 | `memory` | `InMemoryRepository` | Tests / zero-dependency local |
 
 All drivers implement the same interface and normalise version-conflict errors to `VersionConflictError`.
@@ -197,5 +189,4 @@ All drivers implement the same interface and normalise version-conflict errors t
 
 - **MinHeap** keeps players sorted by `gamesPlayed` in O(log n)
 - **Doubles:** picks 4 lowest-count players, evaluates all 3 possible 2v2 splits, chooses the split with fewest repeated partner pairings
-- **Singles:** pulls top 8 candidates, finds the pair minimising `(matchup_repetitions × 100) + combined_gamesPlayed`
 - **Pinned matches** survive regeneration — `regenerateUnpinnedMatches()` preserves manually edited matches in-place and inflates virtual gamesPlayed for players locked into pinned slots
