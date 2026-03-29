@@ -82,26 +82,32 @@ describe('MatchDoneCommand', () => {
 describe('SkipMatchCommand — no bench player', () => {
   // 4-player room: all on court, no bench available
 
-  test('marks current match as skipped and advances index', () => {
+  test('keeps match active (does not skip or advance index)', () => {
     const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
-    assert.equal(patch.matches[0].status, 'skipped');
-    assert.equal(patch.currentMatchIndex, 1);
+    assert.equal(patch.matches[0].status, 'active');
+    assert.equal(patch.currentMatchIndex, undefined); // index does not advance
   });
 
-  test('activates the next match', () => {
+  test('removes skipping player from their team', () => {
     const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
-    assert.equal(patch.matches[1].status, 'active');
+    assert.ok(!patch.matches[0].team1.includes('Alice'));
+    assert.ok(!patch.matches[0].team2.includes('Alice'));
   });
 
-  test('skipping player is released immediately when match is force-skipped', () => {
-    // With no bench, the match advances so Alice's availableFrom(1) <= nextIdx(1) → released
+  test('remaining players stay in their teams', () => {
     const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
-    assert.ok(!patch.unavailablePlayers.some(p => p.name === 'Alice'));
+    // Bob was in team1 with Alice — he should still be there
+    assert.ok(patch.matches[0].team1.includes('Bob') || patch.matches[0].team2.includes('Bob'));
   });
 
-  test('returns a match_skipped log entry', () => {
+  test('adds skipping player to unavailable queue', () => {
+    const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
+    assert.ok(patch.unavailablePlayers.some(p => p.name === 'Alice'));
+  });
+
+  test('returns a player_skipped log entry', () => {
     const { logEntry } = new SkipMatchCommand('Alice').execute(makeRoom());
-    assert.equal(logEntry.type, 'match_skipped');
+    assert.equal(logEntry.type, 'player_skipped');
     assert.ok(logEntry.description.includes('Alice'));
   });
 });

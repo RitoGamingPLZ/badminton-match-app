@@ -70,14 +70,16 @@ describe('MatchService.markDone', () => {
 });
 
 describe('MatchService.skipMatch', () => {
-  test('skips current match when a player in the match requests it', async () => {
-    // Get the current active match to know a valid player name
+  test('removes skipping player from match and keeps it active (no bench available)', async () => {
+    // 4-player room: all on court, no bench — player is removed, match continues
     const { room: current } = await roomService.getRoom(roomCode);
     const playerInMatch = current.matches[0].team1[0];
 
     const { room } = await matchService.skipMatch(roomCode, hostToken, playerInMatch, roomVersion);
-    assert.equal(room.matches[0].status, 'skipped');
-    assert.equal(room.currentMatchIndex, 1);
+    assert.equal(room.matches[0].status, 'active');
+    assert.equal(room.currentMatchIndex, 0); // index does not advance
+    const allInMatch = [...room.matches[0].team1, ...room.matches[0].team2];
+    assert.ok(!allInMatch.includes(playerInMatch));
   });
 
   test('throws 400 for player not in current match', async () => {

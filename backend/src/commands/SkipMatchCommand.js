@@ -10,9 +10,9 @@
  *   — currentMatchIndex does NOT advance.
  *
  * If no bench player is available:
- *   — The match is marked skipped and currentMatchIndex advances.
- *   — The unavailable queue is cleaned up (all players with availableFrom <= nextIdx
- *     are released back to the available pool).
+ *   — The skipping player is removed from their team; the match continues
+ *     with fewer players (1–4 players allowed).
+ *   — currentMatchIndex does NOT advance.
  */
 
 import { generateMatches } from '../matchGen.js';
@@ -49,30 +49,23 @@ export class SkipMatchCommand extends Command {
       .sort((a, b) => a.gamesPlayed - b.gamesPlayed);
 
     if (bench.length === 0) {
-      // No substitute — skip the whole match and advance
+      // No substitute — remove the skipping player from their team and continue
       const updatedMatches = [...room.matches];
-      updatedMatches[idx] = { ...match, status: 'skipped', winner: null };
-
-      const nextIdx = idx + 1;
-      if (nextIdx < updatedMatches.length) {
-        updatedMatches[nextIdx] = { ...updatedMatches[nextIdx], status: 'active' };
-      }
-
-      // Release players whose sit-out period ends with this match advancing
-      const unavailablePlayers = newUnavailablePlayers.filter(
-        p => p.availableFrom > nextIdx
-      );
+      updatedMatches[idx] = {
+        ...match,
+        team1: match.team1.filter(n => n !== playerName),
+        team2: match.team2.filter(n => n !== playerName),
+      };
 
       return {
         patch: {
-          matches:             updatedMatches,
-          currentMatchIndex:   nextIdx,
-          unavailablePlayers,
+          matches:            updatedMatches,
+          unavailablePlayers: newUnavailablePlayers,
         },
         logEntry: {
-          type:        'match_skipped',
+          type:        'player_skipped',
           matchNum:    idx + 1,
-          description: `Match ${idx + 1}: ${playerName} skipped — no substitute available, match skipped`,
+          description: `Match ${idx + 1}: ${playerName} skipped — no substitute, continuing with reduced players`,
         },
       };
     }
