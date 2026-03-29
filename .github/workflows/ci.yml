@@ -43,6 +43,26 @@ jobs:
       - name: Check syntax (node --check)
         run: find backend/src -name "*.js" | xargs node --check
 
+  backend-test:
+    name: Backend — Unit tests (in-memory DB)
+    runs-on: ubuntu-latest
+    env:
+      DB_DRIVER: memory
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test --workspace=backend
+
   terraform-validate:
     name: Terraform — Validate
     runs-on: ubuntu-latest
