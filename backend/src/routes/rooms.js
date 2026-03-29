@@ -7,12 +7,12 @@ import { generateMatches, calculateInitialRounds } from '../matchGen.js';
 import { VersionConflictError } from '../db/index.js';
 import { safeRoom } from '../roomUtils.js';
 import { ERRORS } from '../errors.js';
-import { db, jsonResponse, err, parseBody, hostToken } from './helpers.js';
+import { db, hostToken } from './helpers.js';
 
-export async function handleCreateRoom(event, stream) {
-  const { playerName, additionalPlayers = [] } = parseBody(event);
+export async function handleCreateRoom(req, res) {
+  const { playerName, additionalPlayers = [] } = req.body || {};
   const trimmedName = playerName?.trim();
-  if (!trimmedName) return err(stream, 400, ERRORS.PLAYER_NAME_REQUIRED);
+  if (!trimmedName) return res.status(400).json({ error: ERRORS.PLAYER_NAME_REQUIRED });
 
   const seen    = new Set([trimmedName.toLowerCase()]);
   const players = [{ name: trimmedName, gamesPlayed: 0 }];
@@ -26,7 +26,7 @@ export async function handleCreateRoom(event, stream) {
   let code, attempts = 0;
   do {
     code = String(Math.floor(1000 + Math.random() * 9000));
-    if (++attempts > 20) return err(stream, 503, ERRORS.ROOM_CODE_UNAVAILABLE);
+    if (++attempts > 20) return res.status(503).json({ error: ERRORS.ROOM_CODE_UNAVAILABLE });
   } while (await db.getRoom(code));
 
   const token = randomUUID();
@@ -36,68 +36,66 @@ export async function handleCreateRoom(event, stream) {
     undoStack: [], operationLog: [], unavailablePlayers: [],
   });
 
-  jsonResponse(stream, 201, { hostToken: token, room: safeRoom(room) });
+  res.status(201).json({ hostToken: token, room: safeRoom(room) });
 }
 
-export async function handleJoinRoom(code, event, stream) {
-  const { playerName } = parseBody(event);
-  const trimmedName = playerName?.trim();
-  if (!trimmedName) return err(stream, 400, ERRORS.PLAYER_NAME_REQUIRED);
+export async function handleJoinRoom(req, res) {
+  const { code } = req.params;
+  const trimmedName = req.body?.playerName?.trim();
+  if (!trimmedName) return res.status(400).json({ error: ERRORS.PLAYER_NAME_REQUIRED });
 
   const room = await db.getRoom(code);
-  if (!room) return err(stream, 404, ERRORS.ROOM_NOT_FOUND);
-  if (room.started) return err(stream, 409, ERRORS.SESSION_STARTED);
+  if (!room) return res.status(404).json({ error: ERRORS.ROOM_NOT_FOUND });
+  if (room.started) return res.status(409).json({ error: ERRORS.SESSION_STARTED });
 
-  const nameTaken = room.players.some(
-    p => p.name.toLowerCase() === trimmedName.toLowerCase()
-  );
-  if (nameTaken) return err(stream, 409, ERRORS.PLAYER_NAME_TAKEN);
+  if (room.players.some(p => p.name.toLowerCase() === trimmedName.toLowerCase()))
+    return res.status(409).json({ error: ERRORS.PLAYER_NAME_TAKEN });
 
   const updated = await db.addPlayer(code, { name: trimmedName, gamesPlayed: 0 }, room.version);
-  jsonResponse(stream, 200, { room: safeRoom(updated) });
+  res.status(200).json({ room: safeRoom(updated) });
 }
 
-export async function handleGetRoom(code, stream) {
-  const room = await db.getRoom(code);
-  if (!room) return err(stream, 404, ERRORS.ROOM_NOT_FOUND);
-  jsonResponse(stream, 200, { room: safeRoom(room) });
+export async function handleGetRoom(req, res) {
+  const room = await db.getRoom(req.params.code);
+  if (!room) return res.status(404).json({ error: ERRORS.ROOM_NOT_FOUND });
+  res.status(200).json({ room: safeRoom(room) });
 }
 
-export async function handleStartSession(code, event, stream) {
-  const body = parseBody(event);
+export async function handleStartSession(req, res) {
+  const { code } = req.params;
   const room = await db.getRoom(code);
-  if (!room) return err(stream, 404, ERRORS.ROOM_NOT_FOUND);
-  if (room.hostToken !== hostToken(event)) return err(stream, 403, ERRORS.NOT_HOST);
-  if (room.started) return err(stream, 409, ERRORS.SESSION_STARTED);
-  if (room.players.length < 4) return err(stream, 400, ERRORS.MIN_PLAYERS);
+  if (!room) return res.status(404).json({ error: ERRORS.ROOM_NOT_FOUND });
+  if (room.hostToken !== hostToken(req)) return res.status(403).json({ error: ERRORS.NOT_HOST });
+  if (room.started) return res.status(409).json({ error: ERRORS.SESSION_STARTED });
+  if (room.players.length < 4) return res.status(400).json({ error: ERRORS.MIN_PLAYERS });
 
   const matches = generateMatches(room.players, calculateInitialRounds(room.players.length), 1);
   if (matches.length) matches[0].status = 'active';
 
   try {
-    const updated = await db.startSession(code, matches, body.version ?? room.version);
-    jsonResponse(stream, 200, { room: safeRoom(updated) });
+    const updated = await db.startSession(code, matches, req.body?.version ?? room.version);
+    res.status(200).json({ room: safeRoom(updated) });
   } catch (e) {
-    if (e instanceof VersionConflictError) return err(stream, 409, ERRORS.VERSION_CONFLICT);
+    if (e instanceof VersionConflictError) return res.status(409).json({ error: ERRORS.VERSION_CONFLICT });
     throw e;
   }
 }
 
-export async function handleAddMatches(code, event, stream) {
-  const body = parseBody(event);
+export async function handleAddMatches(req, res) {
+  const { code } = req.params;
   const room = await db.getRoom(code);
-  if (!room) return err(stream, 404, ERRORS.ROOM_NOT_FOUND);
-  if (room.hostToken !== hostToken(event)) return err(stream, 403, ERRORS.NOT_HOST);
+  if (!room) return res.status(404).json({ error: ERRORS.ROOM_NOT_FOUND });
+  if (room.hostToken !== hostToken(req)) return res.status(403).json({ error: ERRORS.NOT_HOST });
 
-  const count      = Math.min(body.count || 5, 20);
+  const count      = Math.min(req.body?.count || 5, 20);
   const startId    = room.matches.length + 1;
   const newMatches = generateMatches(room.players, count, startId);
 
   try {
-    const updated = await db.appendMatches(code, newMatches, body.version ?? room.version);
-    jsonResponse(stream, 200, { room: safeRoom(updated) });
+    const updated = await db.appendMatches(code, newMatches, req.body?.version ?? room.version);
+    res.status(200).json({ room: safeRoom(updated) });
   } catch (e) {
-    if (e instanceof VersionConflictError) return err(stream, 409, ERRORS.VERSION_CONFLICT);
+    if (e instanceof VersionConflictError) return res.status(409).json({ error: ERRORS.VERSION_CONFLICT });
     throw e;
   }
 }

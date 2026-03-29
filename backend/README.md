@@ -1,24 +1,23 @@
 # Backend — Badminton Match App
 
-Node.js REST + SSE API. Runs on **AWS Lambda** in production and as a plain **Node HTTP server** locally (no SAM or Lambda runtime needed).
+Node.js REST + SSE API built with Express. Runs locally via `node src/server.js` and can be deployed to any Node.js-compatible host (Cloud Run, Docker, VPS, etc.).
 
 ## Stack
 
 | Tool | Purpose |
 |---|---|
 | Node.js 20 (ESM) | Runtime |
-| AWS SDK v3 | DynamoDB client |
-| MongoDB Node.js driver v6 | MongoDB client |
-| esbuild | Bundles handler for Lambda deployment |
+| Express | HTTP server + routing |
+| MongoDB Node.js driver v6 | Default database client |
+| p-retry | Exponential-backoff retry for DB calls |
 
 ## Project structure
 
 ```
 backend/
 ├── src/
-│   ├── handler.js          Lambda entry point — REST + SSE streaming
-│   ├── app.js              Express app — local dev (reuses Lambda route handlers)
-│   ├── server.js           Local dev HTTP server (wraps app.js)
+│   ├── app.js              Express app (local dev + any Node.js deployment)
+│   ├── server.js           Entry point — starts HTTP server on $PORT
 │   ├── config.js           Shared constants: CORS headers, MAX_UNDO, MAX_LOG, MAX_PLAYER_NAME_LENGTH
 │   ├── errors.js           Centralised error message constants (ERRORS map + dynamic helpers)
 │   ├── roomUtils.js        Room serialisation (safeRoom) + undo/log stack helpers
@@ -30,8 +29,8 @@ backend/
 │   │   ├── EditMatchCommand.js Edit teams + pin + regenerate pending
 │   │   └── index.js            Re-exports
 │   ├── routes/
-│   │   ├── index.js        Express Router — wires Lambda handlers for URL matching
-│   │   ├── helpers.js      Lambda response utils: jsonResponse, err, parseBody, hostToken, runCommand
+│   │   ├── index.js        Express Router — registers all routes
+│   │   ├── helpers.js      Shared: db instance, hostToken, runCommand, logRequest
 │   │   ├── rooms.js        Room lifecycle: create, join, get, start, addMatches
 │   │   ├── matches.js      Match operations: done, skip, edit
 │   │   ├── session.js      Session control: undo
@@ -44,10 +43,8 @@ backend/
 │       ├── index.js              Repository factory (reads DB_DRIVER env var)
 │       ├── errors.js             VersionConflictError (shared across drivers)
 │       ├── transaction.js        withRetry, withTransaction, withDirectTransaction
-│       ├── DynamoRepository.js   AWS DynamoDB (production)
-│       ├── MongoRepository.js    MongoDB (docker-compose / self-hosted)
+│       ├── MongoRepository.js    MongoDB (default)
 │       └── InMemoryRepository.js Map-backed store (tests / zero-dependency local)
-├── build.mjs             esbuild script → dist/lambda.zip
 ├── Dockerfile            Local dev container (runs server.js)
 └── package.json
 ```
@@ -72,17 +69,14 @@ Host-only routes require the `X-Host-Token` header (or `hostToken` in the reques
 
 ## Database drivers
 
-The database layer is abstracted behind a common repository interface. Switch drivers with the `DB_DRIVER` environment variable — no code changes needed.
-
 | `DB_DRIVER` | Driver | When to use |
 |---|---|---|
-| `dynamodb` _(default)_ | `DynamoRepository` | Lambda / production |
-| `mongodb` | `MongoRepository` | Docker Compose / self-hosted |
+| `mongodb` _(default)_ | `MongoRepository` | Docker Compose / Cloud Run / self-hosted |
 | `memory` | `InMemoryRepository` | Tests, zero-dependency local runs |
 
 ### Repository interface
 
-Every driver implements the same methods:
+Every driver implements:
 
 ```
 getRoom(code)
@@ -122,21 +116,15 @@ The central `runCommand()` in `routes/helpers.js` handles undo-snapshot and oper
 
 Undo is **not** a command — it restores a full state snapshot from the undo stack.
 
-## Local dev and Lambda sharing the same handlers
-
-`app.js` installs a lightweight `awslambda` shim before Express processes any requests. The shim translates `awslambda.HttpResponseStream.from(res, {statusCode, headers})` into standard Express calls so the Lambda route handlers in `routes/` work identically in both environments.
-
 ## Environment variables
 
-| Variable | Default | Driver |
+| Variable | Default | Notes |
 |---|---|---|
-| `DB_DRIVER` | `dynamodb` | All |
-| `TABLE_NAME` | `BadmintonRooms` | DynamoDB |
-| `DYNAMODB_ENDPOINT` | _(AWS default)_ | DynamoDB — set to `http://localhost:8000` for DynamoDB Local |
-| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB |
-| `MONGO_DB` | `badminton` | MongoDB |
+| `DB_DRIVER` | `mongodb` | `mongodb` or `memory` |
+| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
+| `MONGO_DB` | `badminton` | MongoDB database name |
 | `ALLOWED_ORIGIN` | `*` | CORS — set to your frontend URL in production |
-| `PORT` | `3001` | Local server only |
+| `PORT` | `3001` | HTTP server port |
 
 ## Local development
 
@@ -151,9 +139,6 @@ DB_DRIVER=memory npm run dev --workspace=backend
 
 # Or point at a local MongoDB
 MONGO_URI=mongodb://localhost:27017 DB_DRIVER=mongodb npm run dev --workspace=backend
-
-# Or point at DynamoDB Local (must be running separately on port 8000)
-DYNAMODB_ENDPOINT=http://localhost:8000 DB_DRIVER=dynamodb npm run dev --workspace=backend
 ```
 
 ### With Docker (full stack)
@@ -161,40 +146,22 @@ DYNAMODB_ENDPOINT=http://localhost:8000 DB_DRIVER=dynamodb npm run dev --workspa
 ```bash
 # From the repo root — starts backend + MongoDB + frontend
 docker compose up
-
-# Switch to DynamoDB Local (creates the table automatically)
-DB_DRIVER=dynamodb docker compose --profile dynamodb up
 ```
 
-The Docker image runs `node src/server.js` which starts a plain HTTP server on port 3001.
+The Docker image runs `node src/server.js` on port 3001.
 
-## Lambda build (production)
+## Deployment
 
-```bash
-npm run build --workspace=backend
-# Output: backend/dist/lambda.zip
-```
+The backend is a standard Express app and can be deployed anywhere Node.js runs:
 
-`build.mjs` uses esbuild to bundle `src/handler.js` into `dist/handler.mjs` (ESM, `@aws-sdk/*` and `mongodb` excluded — the Lambda runtime provides AWS SDK and MongoDB is not used in Lambda). The bundle is then zipped to `dist/lambda.zip` for upload via Terraform.
-
-## Deployment (Terraform)
-
-Infrastructure lives in `infra/`. See the root README for full Terraform deployment instructions.
-
-Required GitHub Actions secrets before first deploy:
-
-| Secret | Description |
-|---|---|
-| `AWS_ACCESS_KEY_ID` | IAM user with Lambda + DynamoDB + S3 permissions |
-| `AWS_SECRET_ACCESS_KEY` | Corresponding secret key |
-| `AWS_REGION` | Target region (e.g. `ap-southeast-1`) |
-| `VITE_API_BASE` | Lambda Function URL for frontend build |
-| `ALLOWED_ORIGIN` | Frontend URL for CORS (e.g. `https://your-app.com`) |
+- **Cloud Run** — `docker build` + `gcloud run deploy`; set `MONGO_URI` pointing at MongoDB Atlas or a Cloud SQL proxy
+- **Docker/VPS** — `docker compose up` or `node src/server.js` with appropriate env vars
+- **Any PaaS** — set `PORT`, `DB_DRIVER=mongodb`, and `MONGO_URI`
 
 ## TODO / Future improvements
 
-- **Tests** — no test suite exists yet; unit tests for commands and integration tests for the API endpoints are the highest-value addition
-- **Rate limiting** — no per-IP limit on room creation; trivial to abuse without auth
-- **Max total matches per room** — `addMatches` is capped at 20 per call but has no lifetime cap; a ceiling of ~200 matches per room would prevent runaway memory usage
-- **TypeScript / JSDoc types** — the data model is well-defined but not type-checked; JSDoc annotations on `Room`, `Match`, and `Player` shapes would catch shape mismatches at editor time
-- **Distributed tracing** — structured request logging exists (`logRequest` in `routes/helpers.js`) but is not yet wired up to all handlers; a CloudWatch Insights-compatible log format would aid production debugging
+- **Tests** — no test suite exists yet; unit tests for commands and integration tests for the API are the highest-value addition
+- **Rate limiting** — no per-IP limit on room creation
+- **Max total matches per room** — `addMatches` capped at 20 per call but no lifetime cap
+- **TypeScript / JSDoc types** — data model shapes are well-defined but not type-checked
+- **Structured request logging** — `logRequest` utility exists in `routes/helpers.js` but not yet wired to all handlers

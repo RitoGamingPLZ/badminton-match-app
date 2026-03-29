@@ -1,19 +1,14 @@
-output "api_url" {
-  description = "Lambda Function URL — use as VITE_API_BASE in the frontend"
-  value       = aws_lambda_function_url.api.function_url
-}
-
 output "frontend_bucket" {
-  description = "S3 bucket name for the frontend"
-  value       = aws_s3_bucket.frontend.bucket
+  description = "GCS bucket name"
+  value       = google_storage_bucket.frontend.name
 }
 
 output "frontend_url" {
-  description = "Frontend website URL"
-  value       = "https://${aws_s3_bucket.frontend.bucket}.s3-website-${var.aws_region}.amazonaws.com"
+  description = "Frontend website URL (HTTP via GCS website endpoint)"
+  value       = "http://${google_storage_bucket.frontend.name}.storage.googleapis.com/"
 }
 
-output "dynamodb_table" {
-  description = "DynamoDB table name"
-  value       = aws_dynamodb_table.rooms.name
+output "frontend_https_url" {
+  description = "Frontend URL via HTTPS (direct object access — works but no SPA fallback routing)"
+  value       = "https://storage.googleapis.com/${google_storage_bucket.frontend.name}/"
 }

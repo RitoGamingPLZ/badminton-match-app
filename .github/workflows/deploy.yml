@@ -5,31 +5,6 @@ on:
     branches: [main]
 
 jobs:
-  build-backend:
-    name: Backend — Build Lambda zip
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build Lambda zip
-        run: npm run build --workspace=backend
-
-      - name: Upload Lambda zip artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: lambda-zip
-          path: backend/dist/lambda.zip
-          retention-days: 1
-
   build-frontend:
     name: Frontend — Build
     runs-on: ubuntu-latest
@@ -58,31 +33,22 @@ jobs:
           path: frontend/dist/
           retention-days: 1
 
-  terraform-apply:
-    name: Terraform — Apply
+  provision-infra:
+    name: Terraform — Apply (GCS bucket)
     runs-on: ubuntu-latest
-    needs: [build-backend]
     environment: production
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Lambda zip
-        uses: actions/download-artifact@v4
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
         with:
-          name: lambda-zip
-          path: backend/dist/
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: '~1.7'
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Terraform Init
         working-directory: infra
@@ -92,13 +58,13 @@ jobs:
         working-directory: infra
         run: |
           terraform apply -auto-approve \
-            -var="aws_region=${{ secrets.AWS_REGION }}" \
-            -var="allowed_origin=${{ secrets.ALLOWED_ORIGIN || '*' }}"
+            -var="gcp_project=${{ secrets.GCP_PROJECT }}" \
+            -var="bucket_name=${{ secrets.GCS_BUCKET_NAME }}"
 
   deploy-frontend:
-    name: Frontend — Deploy to S3
+    name: Frontend — Deploy to GCS
     runs-on: ubuntu-latest
-    needs: [build-frontend, terraform-apply]
+    needs: [build-frontend, provision-infra]
     environment: production
     steps:
       - name: Download frontend artifact
@@ -107,17 +73,26 @@ jobs:
           name: frontend-dist
           path: frontend/dist/
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Sync to S3
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Sync assets to GCS (long-lived cache)
         run: |
-          aws s3 sync frontend/dist/ s3://badminton-match-app-frontend --delete \
-            --cache-control "public, max-age=31536000, immutable" \
-            --exclude "index.html"
-          aws s3 cp frontend/dist/index.html s3://badminton-match-app-frontend/index.html \
-            --cache-control "no-cache, no-store, must-revalidate"
+          gsutil -m rsync -r -d \
+            -x "index\.html$" \
+            frontend/dist/ gs://${{ secrets.GCS_BUCKET_NAME }}/
+          gsutil -m setmeta \
+            -h "Cache-Control:public, max-age=31536000, immutable" \
+            "gs://${{ secrets.GCS_BUCKET_NAME }}/**"
+
+      - name: Upload index.html (no-cache)
+        run: |
+          gsutil cp \
+            -h "Cache-Control:no-cache, no-store, must-revalidate" \
+            frontend/dist/index.html \
+            gs://${{ secrets.GCS_BUCKET_NAME }}/index.html

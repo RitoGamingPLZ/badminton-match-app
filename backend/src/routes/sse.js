@@ -1,8 +1,5 @@
 /**
  * SSE (Server-Sent Events) handler for live room updates.
- *
- * Bypasses Express and writes directly to the Lambda response stream
- * to support long-lived connections beyond the API Gateway 29s limit.
  */
 
 import { corsHeaders } from '../config.js';
@@ -14,21 +11,17 @@ const SSE_MAX_MS  = 10 * 60 * 1000;
 const SSE_POLL_MS = 2000;
 const SSE_PING_MS = 30 * 1000;
 
-export async function handleSSE(code, event, responseStream) {
-  let clientVersion = parseInt(event.queryStringParameters?.version ?? '0', 10);
+export async function handleSSE(req, res) {
+  const { code } = req.params;
+  let clientVersion = parseInt(req.query.version ?? '0', 10);
 
-  // eslint-disable-next-line no-undef
-  const stream = awslambda.HttpResponseStream.from(responseStream, {
-    statusCode: 200,
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'X-Accel-Buffering': 'no',
-      ...corsHeaders,
-    },
-  });
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  for (const [k, v] of Object.entries(corsHeaders)) res.setHeader(k, v);
+  res.flushHeaders();
 
-  const write = data => { try { stream.write(data); } catch { /* client disconnected */ } };
+  const write = data => { try { res.write(data); } catch { /* client disconnected */ } };
   write(`: connected to room ${code}\n\n`);
 
   const startTime = Date.now();
@@ -36,6 +29,8 @@ export async function handleSSE(code, event, responseStream) {
 
   try {
     while (Date.now() - startTime < SSE_MAX_MS) {
+      if (res.destroyed) break;
+
       const room = await withRetry(() => db.getRoom(code));
       if (!room) { write('event: error\ndata: {"message":"Room not found"}\n\n'); break; }
 
@@ -54,5 +49,5 @@ export async function handleSSE(code, event, responseStream) {
   }
 
   write('event: close\ndata: {}\n\n');
-  stream.end();
+  res.end();
 }

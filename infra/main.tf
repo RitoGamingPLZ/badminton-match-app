@@ -2,24 +2,21 @@ terraform {
   required_version = ">= 1.7"
 
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
+    google = {
+      source  = "hashicorp/google"
       version = "~> 5.0"
     }
   }
 
-  # Remote state — create this S3 bucket + DynamoDB table once manually
-  # (or via `terraform/bootstrap`), then uncomment:
+  # Remote state — create a GCS bucket manually once, then uncomment:
   #
-  # backend "s3" {
-  #   bucket         = "badminton-app-tfstate"
-  #   key            = "badminton-match-app/terraform.tfstate"
-  #   region         = "ap-southeast-1"
-  #   dynamodb_table = "badminton-app-tfstate-lock"
-  #   encrypt        = true
+  # backend "gcs" {
+  #   bucket = "badminton-app-tfstate"
+  #   prefix = "badminton-match-app"
   # }
 }
 
-provider "aws" {
-  region = var.aws_region
+provider "google" {
+  project = var.gcp_project
+  region  = var.gcp_region
 }

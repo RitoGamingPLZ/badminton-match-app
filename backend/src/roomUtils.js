@@ -1,8 +1,8 @@
 /**
  * Room serialisation and undo/log stack helpers.
  *
- * These utilities are shared between the Lambda route handlers and the
- * Express app (local dev).  They have no side-effects and never touch
+ * These utilities are shared across route handlers.
+ * They have no side-effects and never touch
  * the database directly.
  */
 
