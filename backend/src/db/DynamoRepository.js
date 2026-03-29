@@ -91,8 +91,9 @@ export class DynamoRepository {
     if (patch.matches !== undefined)           { setExprs.push('matches = :m');            vals[':m']  = patch.matches; }
     if (patch.players !== undefined)           { setExprs.push('players = :pl');           vals[':pl'] = patch.players; }
     if (patch.currentMatchIndex !== undefined) { setExprs.push('currentMatchIndex = :ci'); vals[':ci'] = patch.currentMatchIndex; }
-    if (patch.undoStack !== undefined)         { setExprs.push('undoStack = :us');         vals[':us'] = patch.undoStack; }
-    if (patch.operationLog !== undefined)      { setExprs.push('operationLog = :ol');      vals[':ol'] = patch.operationLog; }
+    if (patch.undoStack !== undefined)            { setExprs.push('undoStack = :us');            vals[':us'] = patch.undoStack; }
+    if (patch.operationLog !== undefined)         { setExprs.push('operationLog = :ol');         vals[':ol'] = patch.operationLog; }
+    if (patch.unavailablePlayers !== undefined)   { setExprs.push('unavailablePlayers = :up');   vals[':up'] = patch.unavailablePlayers; }
 
     setExprs.push('#v = #v + :one');
 

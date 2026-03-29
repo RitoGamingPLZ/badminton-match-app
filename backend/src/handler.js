@@ -21,19 +21,14 @@
  * POST   /rooms/:code/matches        → addMatches
  * GET    /rooms/:code/events         → SSE stream
  * OPTIONS *                          → CORS preflight
- *
- * Update operations follow the Command pattern:
- *   1. Handler validates inputs and loads room.
- *   2. Handler instantiates the appropriate Command.
- *   3. runCommand() calls command.execute(room) → { patch, logEntry },
- *      pushes an undo snapshot + log entry, then persists atomically.
  */
 
 import { randomUUID } from 'crypto';
 import { Router } from 'express';
 import { getRepository, VersionConflictError } from './db/index.js';
 import { generateMatches, calculateInitialRounds } from './matchGen.js';
-import { MatchDoneCommand, SkipMatchCommand, EditMatchCommand } from './commands.js';
+import { MatchDoneCommand, SkipMatchCommand, EditMatchCommand } from './commands/index.js';
+import { safeRoom, pushUndo, pushLog, makeSnapshot, corsHeaders } from './helpers.js';
 
 const db = getRepository();
 
@@ -45,21 +40,6 @@ if (typeof awslambda === 'undefined') {
     HttpResponseStream: { from(stream) { return stream; } },
   };
 }
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-const MAX_UNDO = 10;
-const MAX_LOG  = 50;
-
-// ── CORS ──────────────────────────────────────────────────────────────────────
-
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
-  'Access-Control-Allow-Headers': 'Content-Type, X-Host-Token',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
-};
 
 // ── Response helpers ──────────────────────────────────────────────────────────
 
@@ -77,21 +57,6 @@ function err(stream, statusCode, message) {
   jsonResponse(stream, statusCode, { error: message });
 }
 
-/** Strip internal fields before sending to clients. */
-function safeRoom(room) {
-  return {
-    code:              room.code,
-    version:           room.version,
-    format:            room.format,
-    started:           room.started,
-    players:           room.players.map(p => ({ name: p.name, gamesPlayed: p.gamesPlayed })),
-    matches:           room.matches,
-    currentMatchIndex: room.currentMatchIndex,
-    operationLog:      room.operationLog || [],
-    canUndo:           (room.undoStack || []).length > 0,
-  };
-}
-
 function parseBody(event) {
   try { return JSON.parse(event.body || '{}'); } catch { return {}; }
 }
@@ -100,35 +65,11 @@ function hostToken(event) {
   return event.headers?.['x-host-token'] || parseBody(event).hostToken || '';
 }
 
-// ── Undo / log stack helpers ──────────────────────────────────────────────────
-
-function pushUndo(room, snapshot) {
-  return [...(room.undoStack || []), snapshot].slice(-MAX_UNDO);
-}
-
-function pushLog(room, entry) {
-  return [...(room.operationLog || []), { ...entry, ts: new Date().toISOString() }].slice(-MAX_LOG);
-}
-
 // ── Command executor ──────────────────────────────────────────────────────────
 
-/**
- * Execute a command against the given room state, persist the result,
- * and write the JSON response.
- *
- * This is the single choke-point for all state-mutating operations,
- * ensuring every command gets undo-snapshot + operation-log treatment.
- */
 async function runCommand(code, command, room, expectedVersion, stream) {
-  // Snapshot current state before mutation for undo
-  const snapshot = {
-    matches:           room.matches,
-    players:           room.players,
-    currentMatchIndex: room.currentMatchIndex,
-  };
-
+  const snapshot     = makeSnapshot(room);
   const { patch, logEntry } = command.execute(room);
-
   const undoStack    = pushUndo(room, snapshot);
   const operationLog = pushLog(room, logEntry);
 
@@ -172,7 +113,7 @@ async function handleCreateRoom(event, stream) {
   const room  = await db.createRoom({
     code, hostToken: token, format: 'doubles', started: false,
     players, matches: [], currentMatchIndex: 0,
-    undoStack: [], operationLog: [],
+    undoStack: [], operationLog: [], unavailablePlayers: [],
   });
 
   jsonResponse(stream, 201, { hostToken: token, room: safeRoom(room) });
@@ -222,8 +163,6 @@ async function handleStartSession(code, event, stream) {
     throw e;
   }
 }
-
-// ── Command-pattern handlers ──────────────────────────────────────────────────
 
 async function handleMarkMatchDone(code, event, stream) {
   const body = parseBody(event);
@@ -289,8 +228,6 @@ async function handleEditMatch(code, event, stream) {
   return runCommand(code, new EditMatchCommand(matchIndex, team1, team2), room, expectedVersion, stream);
 }
 
-// ── Undo (not a Command — restores a previous snapshot directly) ──────────────
-
 async function handleUndoLastOperation(code, event, stream) {
   const body = parseBody(event);
   const room = await db.getRoom(code);
@@ -307,10 +244,11 @@ async function handleUndoLastOperation(code, event, stream) {
 
   try {
     const updated = await db.saveState(code, {
-      matches:           snapshot.matches,
-      players:           snapshot.players,
-      currentMatchIndex: snapshot.currentMatchIndex,
-      undoStack:         newUndoStack,
+      matches:             snapshot.matches,
+      players:             snapshot.players,
+      currentMatchIndex:   snapshot.currentMatchIndex,
+      unavailablePlayers:  snapshot.unavailablePlayers ?? [],
+      undoStack:           newUndoStack,
       operationLog,
     }, body.version ?? room.version);
     jsonResponse(stream, 200, { room: safeRoom(updated) });
@@ -392,38 +330,28 @@ async function handleSSE(code, event, responseStream) {
 
 const router = Router();
 
-router.post('/rooms',                    (req, res) => handleCreateRoom(req._event, res._stream));
-router.get('/rooms/:code',               (req, res) => handleGetRoom(req.params.code, res._stream));
-router.post('/rooms/:code/join',         (req, res) => handleJoinRoom(req.params.code, req._event, res._stream));
-router.post('/rooms/:code/start',        (req, res) => handleStartSession(req.params.code, req._event, res._stream));
-router.post('/rooms/:code/match/done',   (req, res) => handleMarkMatchDone(req.params.code, req._event, res._stream));
-router.post('/rooms/:code/match/skip',   (req, res) => handleSkipMatch(req.params.code, req._event, res._stream));
-router.post('/rooms/:code/undo',         (req, res) => handleUndoLastOperation(req.params.code, req._event, res._stream));
-router.patch('/rooms/:code/match',       (req, res) => handleEditMatch(req.params.code, req._event, res._stream));
-router.post('/rooms/:code/matches',      (req, res) => handleAddMatches(req.params.code, req._event, res._stream));
+router.post('/rooms',                  (req, res) => handleCreateRoom(req._event, res._stream));
+router.get('/rooms/:code',             (req, res) => handleGetRoom(req.params.code, res._stream));
+router.post('/rooms/:code/join',       (req, res) => handleJoinRoom(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/start',      (req, res) => handleStartSession(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/match/done', (req, res) => handleMarkMatchDone(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/match/skip', (req, res) => handleSkipMatch(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/undo',       (req, res) => handleUndoLastOperation(req.params.code, req._event, res._stream));
+router.patch('/rooms/:code/match',     (req, res) => handleEditMatch(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/matches',    (req, res) => handleAddMatches(req.params.code, req._event, res._stream));
 
-/**
- * Dispatch a Lambda event through the Express router.
- * Builds a minimal req/res shim so the router can do URL matching and param
- * extraction, then delegates to the real Lambda stream-based handler functions.
- */
 function dispatchViaRouter(event, responseStream) {
   return new Promise((resolve) => {
-    const method  = (event.requestContext?.http?.method ?? event.httpMethod ?? 'GET').toUpperCase();
-    const url     = event.rawPath ?? event.path ?? '/';
+    const method = (event.requestContext?.http?.method ?? event.httpMethod ?? 'GET').toUpperCase();
+    const url    = event.rawPath ?? event.path ?? '/';
 
-    // Minimal req shim — only needs the fields Express Router uses for matching
     const req = { method, url, _event: event };
-    // Minimal res shim — only needs to exist; real response goes through responseStream
     const res = { _stream: responseStream };
 
     router(req, res, () => {
       err(responseStream, 404, 'Not found');
       resolve();
     });
-
-    // Resolve after any async handler completes (handlers call stream.end() themselves)
-    // We can't await them directly here, so we let the Lambda runtime wait on the stream
   });
 }
 
@@ -441,7 +369,7 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
     return;
   }
 
-  // SSE must bypass Express — it needs the raw Lambda response stream for long-lived streaming
+  // SSE must bypass Express — needs raw Lambda stream for long-lived streaming
   const parts = rawPath.split('/').filter(Boolean);
   if (method === 'GET' && parts[2] === 'events') {
     return await handleSSE(parts[1], event, responseStream);
