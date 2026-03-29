@@ -43,8 +43,8 @@ export const api = {
   markMatchDone: (code, winner, version, hostToken) =>
     request('POST', `/rooms/${code}/match/done`, { winner, version }, hostToken),
 
-  skipMatch: (code, version, hostToken) =>
-    request('POST', `/rooms/${code}/match/skip`, { version }, hostToken),
+  skipMatch: (code, playerName, version, hostToken) =>
+    request('POST', `/rooms/${code}/match/skip`, { playerName, version }, hostToken),
 
   undo: (code, version, hostToken) =>
     request('POST', `/rooms/${code}/undo`, { version }, hostToken),

@@ -49,8 +49,9 @@ export class InMemoryRepository {
       if (patch.matches !== undefined)           fields.matches           = patch.matches;
       if (patch.players !== undefined)           fields.players           = patch.players;
       if (patch.currentMatchIndex !== undefined) fields.currentMatchIndex = patch.currentMatchIndex;
-      if (patch.undoStack !== undefined)         fields.undoStack         = patch.undoStack;
-      if (patch.operationLog !== undefined)      fields.operationLog      = patch.operationLog;
+      if (patch.undoStack !== undefined)           fields.undoStack           = patch.undoStack;
+      if (patch.operationLog !== undefined)        fields.operationLog        = patch.operationLog;
+      if (patch.unavailablePlayers !== undefined)  fields.unavailablePlayers  = patch.unavailablePlayers;
       return fields;
     });
   }

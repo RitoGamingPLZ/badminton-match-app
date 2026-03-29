@@ -35,6 +35,20 @@
 
       <!-- Host controls -->
       <template v-if="store.isHost">
+        <!-- Skip a player -->
+        <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mt-4 mb-1.5">Skip a player</div>
+        <div class="grid grid-cols-4 gap-1.5">
+          <button
+            v-for="name in currentMatchPlayers"
+            :key="name"
+            class="flex flex-col items-center gap-0.5 py-2.5 px-1 rounded-xl border-2 border-slate-200 bg-white text-[0.7rem] font-semibold text-slate-500 cursor-pointer transition-all hover:border-amber-500 hover:text-amber-600 hover:bg-amber-50 active:scale-[0.97]"
+            @click="store.skipMatch(name)"
+          >
+            <span class="text-[1.1rem]">⏭</span>
+            <span class="truncate w-full text-center">{{ name }}</span>
+          </button>
+        </div>
+
         <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mt-4 mb-1.5">Who won?</div>
         <div class="flex gap-2">
           <button
@@ -48,7 +62,7 @@
         </div>
 
         <!-- Action buttons -->
-        <div class="grid grid-cols-4 gap-1.5 mt-3">
+        <div class="grid grid-cols-3 gap-1.5 mt-3">
           <button
             v-for="a in actions"
             :key="a.label"
@@ -176,12 +190,13 @@ const store = useRoomStore()
 const showHistory = ref(false)
 const showFinish  = ref(false)
 
+const currentMatchPlayers = computed(() => {
+  const m = store.currentMatch
+  if (!m) return []
+  return [...m.team1, ...m.team2]
+})
+
 const actions = computed(() => [
-  {
-    icon: '⏭', label: 'Skip',
-    action: () => store.skipMatch(),
-    disabled: false, active: false,
-  },
   {
     icon: '↩', label: 'Undo',
     action: () => store.undo(),
