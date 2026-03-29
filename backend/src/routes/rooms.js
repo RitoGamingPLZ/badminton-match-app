@@ -5,7 +5,7 @@
 import { roomService } from '../services/index.js';
 import { hostToken, logRequest } from './helpers.js';
 
-export async function handleCreateRoom(req, res, next) {
+export async function createRoom(req, res, next) {
   try {
     const { playerName, additionalPlayers = [] } = req.body || {};
     const result = await roomService.createRoom({ playerName, additionalPlayers });
@@ -14,7 +14,7 @@ export async function handleCreateRoom(req, res, next) {
   } catch (e) { next(e); }
 }
 
-export async function handleJoinRoom(req, res, next) {
+export async function joinRoom(req, res, next) {
   try {
     const result = await roomService.joinRoom(req.params.code, req.body?.playerName);
     logRequest(req.method, req.path, 200);
@@ -22,14 +22,14 @@ export async function handleJoinRoom(req, res, next) {
   } catch (e) { next(e); }
 }
 
-export async function handleGetRoom(req, res, next) {
+export async function getRoom(req, res, next) {
   try {
     const result = await roomService.getRoom(req.params.code);
     res.status(200).json(result);
   } catch (e) { next(e); }
 }
 
-export async function handleStartSession(req, res, next) {
+export async function startSession(req, res, next) {
   try {
     const result = await roomService.startSession(
       req.params.code, hostToken(req), req.body?.version
@@ -39,7 +39,7 @@ export async function handleStartSession(req, res, next) {
   } catch (e) { next(e); }
 }
 
-export async function handleAddMatches(req, res, next) {
+export async function addMatches(req, res, next) {
   try {
     const result = await roomService.addMatches(
       req.params.code, hostToken(req), req.body?.count, req.body?.version

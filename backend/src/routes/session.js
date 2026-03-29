@@ -5,7 +5,7 @@
 import { sessionService } from '../services/index.js';
 import { hostToken, logRequest } from './helpers.js';
 
-export async function handleUndoLastOperation(req, res, next) {
+export async function undoLastOperation(req, res, next) {
   try {
     const result = await sessionService.undo(req.params.code, hostToken(req), req.body?.version);
     logRequest(req.method, req.path, 200);

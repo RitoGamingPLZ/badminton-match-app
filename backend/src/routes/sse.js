@@ -8,9 +8,9 @@
 import { corsHeaders } from '../config.js';
 import { sessionService } from '../services/index.js';
 
-export async function handleSSE(req, res) {
-  const { code }        = req.params;
-  const startVersion    = parseInt(req.query.version ?? '0', 10);
+export async function sseEvents(req, res) {
+  const { code }     = req.params;
+  const startVersion = parseInt(req.query.version ?? '0', 10);
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache');

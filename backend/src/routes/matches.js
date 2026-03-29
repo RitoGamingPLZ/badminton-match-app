@@ -5,7 +5,7 @@
 import { matchService } from '../services/index.js';
 import { hostToken, logRequest } from './helpers.js';
 
-export async function handleMarkMatchDone(req, res, next) {
+export async function markMatchDone(req, res, next) {
   try {
     const { winner, version } = req.body || {};
     const result = await matchService.markDone(req.params.code, hostToken(req), winner, version);
@@ -14,7 +14,7 @@ export async function handleMarkMatchDone(req, res, next) {
   } catch (e) { next(e); }
 }
 
-export async function handleSkipMatch(req, res, next) {
+export async function skipMatch(req, res, next) {
   try {
     const { playerName, version } = req.body || {};
     const result = await matchService.skipMatch(req.params.code, hostToken(req), playerName, version);
@@ -23,10 +23,9 @@ export async function handleSkipMatch(req, res, next) {
   } catch (e) { next(e); }
 }
 
-export async function handleEditMatch(req, res, next) {
+export async function editMatch(req, res, next) {
   try {
-    const { team1, team2, version } = req.body || {};
-    const matchIndex = req.body?.matchIndex;
+    const { team1, team2, matchIndex, version } = req.body || {};
     const result = await matchService.editMatch(
       req.params.code, hostToken(req), matchIndex, team1, team2, version
     );
