@@ -1,6 +1,6 @@
 # Frontend — Badminton Match App
 
-Vue 3 single-page application built with Vite and Tailwind CSS v4.
+Vue 3 single-page application built with Vite and Tailwind CSS v4. See the [root README](../README.md) for local development instructions.
 
 ## Stack
 
@@ -55,28 +55,7 @@ All API calls go through `src/api.js`. The base URL is controlled by the `VITE_A
 
 Real-time updates use **Server-Sent Events** via a persistent `EventSource` connection to `GET /rooms/:code/events`. On tab focus, a REST `GET /rooms/:code` re-syncs state in case the SSE dropped while the tab was backgrounded.
 
-## Local development
-
-### Without Docker
-
-```bash
-# From the repo root
-npm install
-npm run dev --workspace=frontend
-```
-
-Open http://localhost:5173. The Vite dev server proxies `/api/*` → `http://localhost:3001`, so the backend must be running separately.
-
-### With Docker (full stack)
-
-```bash
-# From the repo root — starts frontend + backend + MongoDB
-docker compose up
-```
-
-The frontend container mounts `src/`, `index.html`, and `vite.config.js` as volumes, so edits are reflected immediately without rebuilding the image (hot-module replacement works normally).
-
-### Environment variables
+## Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -86,7 +65,7 @@ The frontend container mounts `src/`, `index.html`, and `vite.config.js` as volu
 Create a `.env.local` file at `frontend/` to override locally:
 
 ```env
-VITE_API_BASE=https://your-lambda-url.lambda-url.ap-southeast-1.on.aws
+VITE_API_BASE=https://your-backend-url
 ```
 
 ## Build (production)
@@ -96,7 +75,7 @@ npm run build --workspace=frontend
 # Output: frontend/dist/
 ```
 
-The `dist/` folder is a static site — deploy it to any CDN (S3, Cloudflare Pages, Vercel, Netlify). Set the `VITE_API_BASE` environment variable to your deployed Lambda Function URL before building.
+The `dist/` folder is a static site — deploy it to any CDN (S3, Cloudflare Pages, Vercel, Netlify). Set `VITE_API_BASE` to your deployed backend URL before building.
 
 ## Tailwind CSS v4
 

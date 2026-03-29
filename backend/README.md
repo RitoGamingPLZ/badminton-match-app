@@ -1,6 +1,6 @@
 # Backend — Badminton Match App
 
-Node.js REST + SSE API built with Express. Runs locally via `node src/server.js` and can be deployed to any Node.js-compatible host (Cloud Run, Docker, VPS, etc.).
+Node.js REST + SSE API built with Express. See the [root README](../README.md) for local development and deployment instructions.
 
 ## Stack
 
@@ -67,6 +67,16 @@ backend/
 
 Host-only routes require the `X-Host-Token` header (or `hostToken` in the request body).
 
+## Environment variables
+
+| Variable | Default | Notes |
+|---|---|---|
+| `DB_DRIVER` | `mongodb` | `mongodb` or `memory` |
+| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
+| `MONGO_DB` | `badminton` | MongoDB database name |
+| `ALLOWED_ORIGIN` | `*` | CORS — set to your frontend URL in production |
+| `PORT` | `3001` | HTTP server port |
+
 ## Database drivers
 
 | `DB_DRIVER` | Driver | When to use |
@@ -74,29 +84,11 @@ Host-only routes require the `X-Host-Token` header (or `hostToken` in the reques
 | `mongodb` _(default)_ | `MongoRepository` | Docker Compose / Cloud Run / self-hosted |
 | `memory` | `InMemoryRepository` | Tests, zero-dependency local runs |
 
-### Repository interface
-
-Every driver implements:
-
-```
-getRoom(code)
-createRoom(room)
-saveState(code, patch, expectedVersion)
-addPlayer(code, player, expectedVersion)
-startSession(code, matches, expectedVersion)
-appendMatches(code, newMatches, expectedVersion)
-```
-
-Version-conflict errors are normalised to `VersionConflictError` regardless of which driver is in use.
+Every driver implements the same interface (`getRoom`, `createRoom`, `saveState`, `addPlayer`, `startSession`, `appendMatches`) and normalises version-conflict errors to `VersionConflictError`.
 
 ## Optimistic concurrency
 
-Every room has a `version` integer. All mutations:
-
-1. Read the current `version`.
-2. Send `version` in the request body.
-3. The repository atomically checks `version === expectedVersion` before writing.
-4. On conflict → `VersionConflictError` → HTTP 409 → client re-fetches and retries.
+Every room has a `version` integer. All mutations read the current version, send it in the request body, and the repository atomically checks `version === expectedVersion` before writing. On conflict → `VersionConflictError` → HTTP 409 → client re-fetches and retries.
 
 ## Command pattern
 
@@ -114,49 +106,7 @@ The central `runCommand()` in `routes/helpers.js` handles undo-snapshot and oper
 | `SkipMatchCommand(playerName)` | `POST /match/skip` — marks skipped or substitutes bench player |
 | `EditMatchCommand(idx, t1, t2)` | `PATCH /match` — pins match, regenerates pending |
 
-Undo is **not** a command — it restores a full state snapshot from the undo stack.
-
-## Environment variables
-
-| Variable | Default | Notes |
-|---|---|---|
-| `DB_DRIVER` | `mongodb` | `mongodb` or `memory` |
-| `MONGO_URI` | `mongodb://localhost:27017` | MongoDB connection string |
-| `MONGO_DB` | `badminton` | MongoDB database name |
-| `ALLOWED_ORIGIN` | `*` | CORS — set to your frontend URL in production |
-| `PORT` | `3001` | HTTP server port |
-
-## Local development
-
-### Without Docker
-
-```bash
-# From the repo root
-npm install
-
-# Start with in-memory store (no database required)
-DB_DRIVER=memory npm run dev --workspace=backend
-
-# Or point at a local MongoDB
-MONGO_URI=mongodb://localhost:27017 DB_DRIVER=mongodb npm run dev --workspace=backend
-```
-
-### With Docker (full stack)
-
-```bash
-# From the repo root — starts backend + MongoDB + frontend
-docker compose up
-```
-
-The Docker image runs `node src/server.js` on port 3001.
-
-## Deployment
-
-The backend is a standard Express app and can be deployed anywhere Node.js runs:
-
-- **Cloud Run** — `docker build` + `gcloud run deploy`; set `MONGO_URI` pointing at MongoDB Atlas or a Cloud SQL proxy
-- **Docker/VPS** — `docker compose up` or `node src/server.js` with appropriate env vars
-- **Any PaaS** — set `PORT`, `DB_DRIVER=mongodb`, and `MONGO_URI`
+Undo restores a full state snapshot (not re-execution).
 
 ## TODO / Future improvements
 
