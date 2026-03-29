@@ -31,6 +31,8 @@ app.use((req, res, next) => {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
 app.post('/rooms',                   createRoom);
 app.get('/rooms/:code',              getRoom);
 app.get('/rooms/:code/events',       sseEvents);
