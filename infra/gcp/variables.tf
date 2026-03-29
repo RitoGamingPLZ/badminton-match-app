@@ -15,24 +15,6 @@ variable "allowed_origin" {
   default     = "*"
 }
 
-variable "machine_type" {
-  description = "Compute Engine machine type for backend VMs"
-  type        = string
-  default     = "e2-micro"
-}
-
-variable "min_replicas" {
-  description = "Minimum number of VM instances in the autoscaling group"
-  type        = number
-  default     = 1
-}
-
-variable "max_replicas" {
-  description = "Maximum number of VM instances in the autoscaling group"
-  type        = number
-  default     = 5
-}
-
 variable "firestore_location" {
   description = "Firestore database location (multi-region: nam5/eur3, or single region)"
   type        = string

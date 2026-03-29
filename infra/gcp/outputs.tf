@@ -29,11 +29,16 @@ output "firestore_database" {
 }
 
 output "backend_service_account" {
-  description = "Service account email used by backend VMs"
+  description = "Service account email used by the Cloud Run backend"
   value       = google_service_account.backend_sa.email
 }
 
-output "mig_name" {
-  description = "Name of the regional Managed Instance Group"
-  value       = google_compute_region_instance_group_manager.backend_mig.name
+output "cloud_run_url" {
+  description = "Managed HTTPS URL of the Cloud Run backend service"
+  value       = google_cloud_run_v2_service.backend.uri
+}
+
+output "artifact_registry_url" {
+  description = "Artifact Registry repository URL for backend Docker images"
+  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.backend.repository_id}"
 }
