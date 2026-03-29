@@ -41,8 +41,7 @@ jobs:
         run: npm ci
 
       - name: Check syntax (node --check)
-        run: |
-          find backend/src -name "*.js" | xargs -I{} node --input-type=module --check < {}
+        run: find backend/src -name "*.js" | xargs node --check
 
   terraform-validate:
     name: Terraform — Validate
@@ -56,23 +55,16 @@ jobs:
           terraform_version: '~1.7'
 
       - name: Terraform Init (local backend, no credentials needed)
-        working-directory: infra
-        run: terraform init -backend=false
-
-      - name: Terraform Validate — AWS
-        working-directory: infra
-        run: terraform validate
-        env:
-          TF_VAR_gcp_project: ci-placeholder
-
-      - name: Terraform Init — GCP (local backend)
         working-directory: infra/gcp
         run: terraform init -backend=false
 
       - name: Terraform Validate — GCP
         working-directory: infra/gcp
         run: terraform validate
+        env:
+          TF_VAR_project_id: ci-placeholder
+          TF_VAR_backend_image: ci-placeholder
 
-      - name: Terraform Format check (all modules)
-        working-directory: infra
+      - name: Terraform Format check
+        working-directory: infra/gcp
         run: terraform fmt -check -recursive

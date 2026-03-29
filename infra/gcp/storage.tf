@@ -11,7 +11,7 @@
 
 resource "google_storage_bucket" "frontend" {
   name          = var.bucket_name
-  location      = var.gcp_region
+  location      = var.region
   force_destroy = true
 
   # SPA routing — all unknown paths fall back to index.html
