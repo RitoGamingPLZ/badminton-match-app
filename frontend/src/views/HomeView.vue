@@ -2,28 +2,66 @@
   <div>
     <Transition name="fade" mode="out-in">
 
-      <!-- ── Initial: two action buttons ─────────────────────────────────── -->
-      <div v-if="!activeForm" key="buttons" class="flex flex-col gap-4 pt-6">
-        <div class="text-center mb-2">
+      <!-- ── Home: join fields + create button ───────────────────────────── -->
+      <div v-if="!activeForm" key="home" class="pt-6">
+        <div class="text-center mb-6">
           <span class="text-2xl">🏸</span>
           <div class="text-lg font-bold text-slate-700 mt-1">Badminton Match</div>
         </div>
+
+        <!-- Room code -->
+        <div class="mb-3">
+          <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Room Code</label>
+          <input
+            v-model="joinCode"
+            class="w-full px-3.5 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 bg-white outline-none focus:border-green-600 transition-colors input-code"
+            placeholder="1234"
+            maxlength="4"
+            inputmode="numeric"
+            pattern="[0-9]*"
+            @input="joinCode = joinCode.replace(/\D/g, '')"
+            @keydown.enter="submitJoin"
+          />
+        </div>
+
+        <!-- Your name (for join) -->
+        <div class="mb-3.5">
+          <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Your Name</label>
+          <input
+            v-model="joinName"
+            class="w-full px-3.5 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 bg-white outline-none focus:border-green-600 transition-colors"
+            placeholder="e.g. Sarah"
+            maxlength="20"
+            @keydown.enter="submitJoin"
+          />
+        </div>
+
         <button
-          class="w-full py-4 bg-green-600 text-white rounded-2xl font-bold text-lg cursor-pointer hover:bg-green-700 active:scale-[0.97] transition-all shadow-[0_4px_16px_rgba(22,163,74,0.25)]"
+          class="block w-full py-3.5 px-5 bg-green-600 text-white rounded-xl font-semibold text-base cursor-pointer hover:bg-green-700 active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
+          :disabled="store.loading || joinCode.length !== 4 || !joinName.trim()"
+          @click="submitJoin"
+        >
+          {{ store.loading ? 'Joining…' : 'Join Room' }}
+        </button>
+
+        <!-- Divider -->
+        <div class="relative text-center my-5 text-[0.78rem] text-slate-400">
+          <span class="relative z-10 bg-slate-50 px-3">or</span>
+          <div class="absolute inset-0 flex items-center">
+            <div class="w-full border-t border-slate-200"></div>
+          </div>
+        </div>
+
+        <button
+          class="block w-full py-3.5 px-5 bg-white text-slate-600 border-2 border-slate-200 rounded-xl font-semibold text-base cursor-pointer hover:border-green-600 hover:text-green-600 active:scale-[0.97] transition-all"
           @click="openCreate"
         >
-          Create
-        </button>
-        <button
-          class="w-full py-4 bg-white text-green-600 border-2 border-green-600 rounded-2xl font-bold text-lg cursor-pointer hover:bg-green-50 active:scale-[0.97] transition-all"
-          @click="openJoin"
-        >
-          Join
+          Create Room
         </button>
       </div>
 
-      <!-- ── Create Room form ─────────────────────────────────────────────── -->
-      <div v-else-if="activeForm === 'create'" key="create">
+      <!-- ── Create Room form (fade in) ──────────────────────────────────── -->
+      <div v-else key="create">
         <button
           class="mb-4 flex items-center gap-1.5 text-[0.85rem] font-semibold text-slate-500 hover:text-slate-700 transition-colors bg-transparent border-none cursor-pointer p-0"
           @click="activeForm = null"
@@ -80,53 +118,6 @@
         </div>
       </div>
 
-      <!-- ── Join Room form ───────────────────────────────────────────────── -->
-      <div v-else key="join">
-        <button
-          class="mb-4 flex items-center gap-1.5 text-[0.85rem] font-semibold text-slate-500 hover:text-slate-700 transition-colors bg-transparent border-none cursor-pointer p-0"
-          @click="activeForm = null"
-        >
-          ← Back
-        </button>
-
-        <div class="bg-white rounded-2xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-5">
-          <div class="text-base font-bold mb-4">Join Room</div>
-
-          <div class="mb-3.5">
-            <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Room Code</label>
-            <input
-              v-model="joinCode"
-              class="w-full px-3.5 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 bg-white outline-none focus:border-green-600 transition-colors input-code"
-              placeholder="1234"
-              maxlength="4"
-              inputmode="numeric"
-              pattern="[0-9]*"
-              @input="joinCode = joinCode.replace(/\D/g, '')"
-              @keydown.enter="submitJoin"
-            />
-          </div>
-
-          <div class="mb-3.5">
-            <label class="block text-[0.78rem] font-bold text-slate-500 uppercase tracking-[0.5px] mb-1.5">Your Name</label>
-            <input
-              v-model="joinName"
-              class="w-full px-3.5 py-3 border-2 border-slate-200 rounded-xl text-base text-slate-800 bg-white outline-none focus:border-green-600 transition-colors"
-              placeholder="e.g. Sarah"
-              maxlength="20"
-              @keydown.enter="submitJoin"
-            />
-          </div>
-
-          <button
-            class="block w-full py-3.5 px-5 bg-transparent text-green-600 border-2 border-green-600 rounded-xl font-semibold text-base cursor-pointer hover:bg-green-100 active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:transform-none"
-            :disabled="store.loading || joinCode.length !== 4 || !joinName.trim()"
-            @click="submitJoin"
-          >
-            {{ store.loading ? 'Joining…' : 'Join Room' }}
-          </button>
-        </div>
-      </div>
-
     </Transition>
   </div>
 </template>
@@ -155,10 +146,6 @@ function openCreate() {
     } catch {}
   }
   activeForm.value = 'create'
-}
-
-function openJoin() {
-  activeForm.value = 'join'
 }
 
 function addPlayerField() {
