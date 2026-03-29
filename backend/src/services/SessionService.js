@@ -6,16 +6,13 @@
 
 import { safeRoom, isValidSnapshot } from '../roomUtils.js';
 import { ServiceError, ERRORS } from '../errors.js';
-import { VersionConflictError } from '../db/index.js';
-import { withRetry, sleep } from '../db/transaction.js';
+import { withRetry, withConflictRetry, sleep } from '../db/transaction.js';
 import {
   validateRoomExists,
   validateIsHost,
   validateSessionStarted,
   validateUndoAvailable,
 } from '../validation/roomValidators.js';
-
-const TRANSACTION_DELAYS_MS = [300, 600, 900];
 
 const SSE_MAX_MS  = 10 * 60 * 1000;
 const SSE_POLL_MS = 2000;
@@ -49,20 +46,11 @@ export class SessionService {
       operationLog:       (room.operationLog || []).slice(0, -1),
     };
 
-    for (let attempt = 0; attempt < TRANSACTION_DELAYS_MS.length; attempt++) {
-      try {
-        const updated = await withRetry(() =>
-          this.#db.saveState(code, patch, version ?? room.version)
-        );
-        return { room: safeRoom(updated) };
-      } catch (e) {
-        if (!(e instanceof VersionConflictError)) throw e;
-        if (attempt === TRANSACTION_DELAYS_MS.length - 1)
-          throw new ServiceError(409, ERRORS.VERSION_CONFLICT);
-        await sleep(TRANSACTION_DELAYS_MS[attempt]);
-        version = (await withRetry(() => this.#db.getRoom(code)))?.version;
-      }
-    }
+    return withConflictRetry(
+      () => withRetry(() => this.#db.saveState(code, patch, version ?? room.version))
+              .then(updated => ({ room: safeRoom(updated) })),
+      async () => { version = (await withRetry(() => this.#db.getRoom(code)))?.version; },
+    );
   }
 
   /**
@@ -70,10 +58,10 @@ export class SessionService {
    * Consumed by the SSE route handler which owns the HTTP transport.
    *
    * Yields objects of the form:
-   *   { type: 'data',  room }   — room state changed
-   *   { type: 'ping' }          — keepalive
-   *   { type: 'error', message} — room not found / unrecoverable error
-   *   { type: 'close' }         — max lifetime reached or client gone
+   *   { type: 'data',  room }    — room state changed
+   *   { type: 'ping' }           — keepalive
+   *   { type: 'error', message } — room not found / unrecoverable error
+   *   { type: 'close' }          — max lifetime reached or client gone
    */
   async *watchRoom(code, startVersion) {
     let clientVersion = startVersion;

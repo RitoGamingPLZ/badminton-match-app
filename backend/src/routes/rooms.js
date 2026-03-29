@@ -1,50 +1,27 @@
 /**
- * Room lifecycle route handlers — parse request, delegate to RoomService, respond.
+ * Room lifecycle route handlers.
  */
 
 import { roomService } from '../services/index.js';
-import { hostToken, logRequest } from './helpers.js';
+import { hostToken, wrapRoute } from './helpers.js';
 
-export async function createRoom(req, res, next) {
-  try {
-    const { playerName, additionalPlayers = [] } = req.body || {};
-    const result = await roomService.createRoom({ playerName, additionalPlayers });
-    logRequest(req.method, req.path, 201);
-    res.status(201).json(result);
-  } catch (e) { next(e); }
-}
+export const createRoom = wrapRoute(async req => {
+  const { playerName, additionalPlayers = [] } = req.body || {};
+  return roomService.createRoom({ playerName, additionalPlayers });
+}, 201);
 
-export async function joinRoom(req, res, next) {
-  try {
-    const result = await roomService.joinRoom(req.params.code, req.body?.playerName);
-    logRequest(req.method, req.path, 200);
-    res.status(200).json(result);
-  } catch (e) { next(e); }
-}
+export const joinRoom = wrapRoute(req =>
+  roomService.joinRoom(req.params.code, req.body?.playerName)
+);
 
-export async function getRoom(req, res, next) {
-  try {
-    const result = await roomService.getRoom(req.params.code);
-    res.status(200).json(result);
-  } catch (e) { next(e); }
-}
+export const getRoom = wrapRoute(req =>
+  roomService.getRoom(req.params.code)
+);
 
-export async function startSession(req, res, next) {
-  try {
-    const result = await roomService.startSession(
-      req.params.code, hostToken(req), req.body?.version
-    );
-    logRequest(req.method, req.path, 200);
-    res.status(200).json(result);
-  } catch (e) { next(e); }
-}
+export const startSession = wrapRoute(req =>
+  roomService.startSession(req.params.code, hostToken(req), req.body?.version)
+);
 
-export async function addMatches(req, res, next) {
-  try {
-    const result = await roomService.addMatches(
-      req.params.code, hostToken(req), req.body?.count, req.body?.version
-    );
-    logRequest(req.method, req.path, 200);
-    res.status(200).json(result);
-  } catch (e) { next(e); }
-}
+export const addMatches = wrapRoute(req =>
+  roomService.addMatches(req.params.code, hostToken(req), req.body?.count, req.body?.version)
+);

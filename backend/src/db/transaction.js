@@ -1,14 +1,15 @@
 /**
- * Low-level retry helpers for repository operations.
+ * Retry helpers for repository operations.
  *
- * - sleep     — promise-based delay
- * - withRetry — wraps a single DB call with exponential-backoff retries
- *               (VersionConflictError is never retried here; it is handled
- *               at the service-layer transaction level)
+ * - sleep              — promise-based delay
+ * - withRetry          — wraps a single DB call with exponential-backoff retries
+ * - withConflictRetry  — service-level optimistic-concurrency retry loop
  */
 
 import pRetry, { AbortError } from 'p-retry';
 import { VersionConflictError } from './errors.js';
+import { ServiceError, ERRORS } from '../errors.js';
+import { TRANSACTION_DELAYS_MS } from '../config.js';
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -25,4 +26,26 @@ export function withRetry(fn) {
       if (err instanceof VersionConflictError) throw new AbortError(err);
     },
   });
+}
+
+/**
+ * Retry a save operation on VersionConflictError with TRANSACTION_DELAYS_MS
+ * progressive backoff. Calls onConflict() between attempts so the caller can
+ * re-read the room and refresh its closure state.
+ *
+ * @param {Function} saveFn     - async () => result
+ * @param {Function} onConflict - async (attempt) => void
+ */
+export async function withConflictRetry(saveFn, onConflict) {
+  for (let attempt = 0; attempt < TRANSACTION_DELAYS_MS.length; attempt++) {
+    try {
+      return await saveFn();
+    } catch (e) {
+      if (!(e instanceof VersionConflictError)) throw e;
+      if (attempt === TRANSACTION_DELAYS_MS.length - 1)
+        throw new ServiceError(409, ERRORS.VERSION_CONFLICT);
+      await sleep(TRANSACTION_DELAYS_MS[attempt]);
+      await onConflict(attempt);
+    }
+  }
 }

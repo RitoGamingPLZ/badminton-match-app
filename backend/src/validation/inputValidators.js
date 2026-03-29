@@ -4,8 +4,7 @@
  */
 
 import { MAX_PLAYER_NAME_LENGTH } from '../config.js';
-import { ServiceError } from '../errors.js';
-import { ERRORS, unknownPlayer, playerNotInMatch, matchNotFound } from '../errors.js';
+import { ServiceError, ERRORS, unknownPlayer, playerNotInMatch, matchNotFound } from '../errors.js';
 
 export function validatePlayerName(name) {
   if (!name)                              throw new ServiceError(400, ERRORS.PLAYER_NAME_REQUIRED);

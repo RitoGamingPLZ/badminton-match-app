@@ -11,3 +11,20 @@ export function hostToken(req) {
 export function logRequest(method, path, status) {
   console.log(JSON.stringify({ ts: new Date().toISOString(), method, path, status }));
 }
+
+/**
+ * Wrap a route handler so it handles try/catch/next, logging, and JSON
+ * response in one place.
+ *
+ * @param {Function} fn     - async (req, res) => result
+ * @param {number}   status - HTTP status code (default 200)
+ */
+export function wrapRoute(fn, status = 200) {
+  return async (req, res, next) => {
+    try {
+      const result = await fn(req, res);
+      logRequest(req.method, req.path, status);
+      res.status(status).json(result);
+    } catch (e) { next(e); }
+  };
+}

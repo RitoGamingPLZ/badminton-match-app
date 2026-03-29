@@ -1,14 +1,10 @@
 /**
- * Session control route handlers — parse request, delegate to SessionService, respond.
+ * Session control route handlers.
  */
 
 import { sessionService } from '../services/index.js';
-import { hostToken, logRequest } from './helpers.js';
+import { hostToken, wrapRoute } from './helpers.js';
 
-export async function undoLastOperation(req, res, next) {
-  try {
-    const result = await sessionService.undo(req.params.code, hostToken(req), req.body?.version);
-    logRequest(req.method, req.path, 200);
-    res.status(200).json(result);
-  } catch (e) { next(e); }
-}
+export const undoLastOperation = wrapRoute(req =>
+  sessionService.undo(req.params.code, hostToken(req), req.body?.version)
+);

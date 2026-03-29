@@ -9,12 +9,11 @@
 
 import { MatchDoneCommand, SkipMatchCommand, EditMatchCommand } from '../commands/index.js';
 import { safeRoom, makeSnapshot, pushUndo, pushLog } from '../roomUtils.js';
-import { ServiceError, ERRORS, playerNotInMatch } from '../errors.js';
-import { VersionConflictError } from '../db/index.js';
-import { withRetry, sleep } from '../db/transaction.js';
+import { withRetry, withConflictRetry } from '../db/transaction.js';
 import {
   validateWinner,
   validatePlayerName,
+  validatePlayerInMatch,
   validateTeams,
   validateTeamPlayers,
   validateMatchExists,
@@ -26,8 +25,6 @@ import {
   validateSessionStarted,
   validateActiveMatch,
 } from '../validation/roomValidators.js';
-
-const TRANSACTION_DELAYS_MS = [300, 600, 900];
 
 export class MatchService {
   #db;
@@ -58,11 +55,7 @@ export class MatchService {
     validateSessionStarted(room);
     validateActiveMatch(room);
 
-    // Validate the named player is actually in the current match
-    const match      = room.matches[room.currentMatchIndex];
-    const allPlayers = new Set([...match.team1, ...match.team2]);
-    if (!allPlayers.has(trimmedName))
-      throw new ServiceError(400, playerNotInMatch(trimmedName));
+    validatePlayerInMatch(trimmedName, room);
 
     return this.#executeCommand(code, new SkipMatchCommand(trimmedName), room, version ?? room.version);
   }
@@ -89,29 +82,22 @@ export class MatchService {
 
   /**
    * Execute a Command with undo-snapshot bookkeeping and optimistic-concurrency
-   * retry. On VersionConflictError, waits TRANSACTION_DELAYS_MS[attempt] and
-   * re-reads the room before retrying the save.
+   * retry via withConflictRetry.
    */
   async #executeCommand(code, command, room, expectedVersion) {
-    for (let attempt = 0; attempt < TRANSACTION_DELAYS_MS.length; attempt++) {
+    const buildPatch = () => {
       const snapshot     = makeSnapshot(room);
       const { patch, logEntry } = command.execute(room);
-      const undoStack    = pushUndo(room, snapshot);
-      const operationLog = pushLog(room, logEntry);
+      return { ...patch, undoStack: pushUndo(room, snapshot), operationLog: pushLog(room, logEntry) };
+    };
 
-      try {
-        const updated = await withRetry(() =>
-          this.#db.saveState(code, { ...patch, undoStack, operationLog }, expectedVersion)
-        );
-        return { room: safeRoom(updated) };
-      } catch (e) {
-        if (!(e instanceof VersionConflictError)) throw e;
-        if (attempt === TRANSACTION_DELAYS_MS.length - 1)
-          throw new ServiceError(409, ERRORS.VERSION_CONFLICT);
-        await sleep(TRANSACTION_DELAYS_MS[attempt]);
+    return withConflictRetry(
+      () => withRetry(() => this.#db.saveState(code, buildPatch(), expectedVersion))
+              .then(updated => ({ room: safeRoom(updated) })),
+      async () => {
         room = await withRetry(() => this.#db.getRoom(code));
         expectedVersion = room.version;
-      }
-    }
+      },
+    );
   }
 }

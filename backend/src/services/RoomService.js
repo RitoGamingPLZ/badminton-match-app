@@ -14,8 +14,6 @@ import { VersionConflictError } from '../db/index.js';
 import {
   validatePlayerName,
   validatePlayerNotTaken,
-  validateTeams,
-  validateTeamPlayers,
 } from '../validation/inputValidators.js';
 import {
   validateRoomExists,
@@ -116,26 +114,4 @@ export class RoomService {
     }
   }
 
-  async editTeams(code, token, matchIndex, team1, team2, version) {
-    validateTeams(team1, team2);
-
-    const room = await this.#db.getRoom(code);
-    validateRoomExists(room);
-    validateIsHost(token, room);
-    validateTeamPlayers(team1, team2, room);
-
-    const newMatches = room.matches.map((m, i) =>
-      i === matchIndex ? { ...m, team1, team2 } : m
-    );
-
-    try {
-      const updated = await this.#db.saveState(
-        code, { matches: newMatches }, version ?? room.version
-      );
-      return { room: safeRoom(updated) };
-    } catch (e) {
-      if (e instanceof VersionConflictError) throw new ServiceError(409, ERRORS.VERSION_CONFLICT);
-      throw e;
-    }
-  }
 }

@@ -7,6 +7,7 @@
  */
 
 import { VersionConflictError } from './errors.js';
+import { applyPatch } from './patch.js';
 
 const TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -58,12 +59,7 @@ export class InMemoryRepository {
   async saveState(code, patch, expectedVersion) {
     return this.#apply(code, expectedVersion, () => {
       const fields = {};
-      if (patch.matches !== undefined)            fields.matches            = patch.matches;
-      if (patch.players !== undefined)            fields.players            = patch.players;
-      if (patch.currentMatchIndex !== undefined)  fields.currentMatchIndex  = patch.currentMatchIndex;
-      if (patch.undoStack !== undefined)          fields.undoStack          = patch.undoStack;
-      if (patch.operationLog !== undefined)       fields.operationLog       = patch.operationLog;
-      if (patch.unavailablePlayers !== undefined) fields.unavailablePlayers = patch.unavailablePlayers;
+      applyPatch(fields, patch);
       return fields;
     });
   }
