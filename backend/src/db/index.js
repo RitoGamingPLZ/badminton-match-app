@@ -21,7 +21,6 @@
  *   memory    — In-process Map (tests / zero-dependency local runs)
  */
 
-import { DynamoRepository }     from './DynamoRepository.js';
 import { MongoRepository }      from './MongoRepository.js';
 import { InMemoryRepository }   from './InMemoryRepository.js';
 import { FirestoreRepository }  from './FirestoreRepository.js';

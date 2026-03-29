@@ -265,7 +265,7 @@ export const useRoomStore = defineStore('room', () => {
     isHost, currentMatch, upcomingMatches, editableMatches,
     doneCnt, totalCnt, progress, canUndo, opLog,
     // Actions
-    createRoom, joinRoom, setFormat, startSession,
+    createRoom, joinRoom, startSession,
     markMatchDone, skipMatch, undo, editMatch, addMatches,
     openEditMatches, closeEditMatches,
     leaveRoom, tryRestoreSession, clearError,

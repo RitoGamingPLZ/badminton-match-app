@@ -19,6 +19,8 @@ export class MongoRepository {
   #client;
   #dbName;
   #coll = null;
+  #connectPromise = null;
+  #initialized = false;
 
   constructor(uri, dbName) {
     this.#client = new MongoClient(uri);
@@ -27,19 +29,29 @@ export class MongoRepository {
 
   // Lazy connect + index setup on first use
   async #collection() {
-    if (this.#coll) return this.#coll;
+  if (this.#coll) return this.#coll;
 
-    await this.#client.connect();
-    const coll = this.#client.db(this.#dbName).collection('rooms');
+  if (!this.#connectPromise) {
+    this.#connectPromise = (async () => {
+      await this.#client.connect();
 
-    // Unique index on room code
-    await coll.createIndex({ code: 1 }, { unique: true });
-    // TTL index — MongoDB deletes documents when Date field <= now
-    await coll.createIndex({ ttl: 1 }, { expireAfterSeconds: 0 });
+      const coll = this.#client
+        .db(this.#dbName)
+        .collection('rooms');
 
-    this.#coll = coll;
-    return coll;
+      if (!this.#initialized) {
+        await coll.createIndex({ code: 1 }, { unique: true });
+        await coll.createIndex({ ttl: 1 }, { expireAfterSeconds: 0 });
+        this.#initialized = true;
+      }
+
+      this.#coll = coll;
+      return coll;
+    })();
   }
+
+  return this.#connectPromise;
+}
 
   // ── Read ────────────────────────────────────────────────────────────────────
 

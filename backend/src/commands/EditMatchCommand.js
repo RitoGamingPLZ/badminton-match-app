@@ -9,6 +9,7 @@ import { Command } from './Command.js';
 
 export class EditMatchCommand extends Command {
   constructor(matchIndex, team1, team2) {
+    super();
     this.matchIndex = matchIndex;
     this.team1      = team1;
     this.team2      = team2;

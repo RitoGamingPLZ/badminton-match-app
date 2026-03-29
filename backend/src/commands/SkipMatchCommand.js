@@ -20,6 +20,7 @@ import { Command } from './Command.js';
 
 export class SkipMatchCommand extends Command {
   constructor(playerName) {
+    super();
     this.playerName = playerName;
   }
 

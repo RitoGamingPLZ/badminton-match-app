@@ -11,4 +11,4 @@ COPY src ./src
 
 EXPOSE 3001
 
-CMD ["node", "src/server.js"]
+CMD ["npx", "nodemon", "src/server.js"]

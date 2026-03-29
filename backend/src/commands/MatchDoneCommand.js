@@ -8,6 +8,7 @@ import { Command } from './Command.js';
 
 export class MatchDoneCommand extends Command {
   constructor(winner) {
+    super();
     this.winner = winner; // 1 | 2
   }
 

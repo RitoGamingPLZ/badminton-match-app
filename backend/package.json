@@ -11,5 +11,8 @@
     "express": "^4.19.0",
     "mongodb": "^6.5.0",
     "p-retry": "^8.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
   }
 }
