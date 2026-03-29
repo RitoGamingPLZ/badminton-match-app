@@ -5,8 +5,9 @@
  */
 
 import { regenerateUnpinnedMatches } from '../matchGen.js';
+import { Command } from './Command.js';
 
-export class EditMatchCommand {
+export class EditMatchCommand extends Command {
   constructor(matchIndex, team1, team2) {
     this.matchIndex = matchIndex;
     this.team1      = team1;

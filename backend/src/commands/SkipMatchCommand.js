@@ -16,8 +16,9 @@
  */
 
 import { generateMatches } from '../matchGen.js';
+import { Command } from './Command.js';
 
-export class SkipMatchCommand {
+export class SkipMatchCommand extends Command {
   constructor(playerName) {
     this.playerName = playerName;
   }

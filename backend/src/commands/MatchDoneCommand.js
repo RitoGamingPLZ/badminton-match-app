@@ -4,7 +4,9 @@
  * are cleared (they become available again for future matches).
  */
 
-export class MatchDoneCommand {
+import { Command } from './Command.js';
+
+export class MatchDoneCommand extends Command {
   constructor(winner) {
     this.winner = winner; // 1 | 2
   }
