@@ -1,19 +1,15 @@
 <template>
   <div class="min-h-screen bg-slate-50 pb-10 font-sans">
 
-    <!-- Header -->
-    <header class="bg-green-600 text-white px-4 sticky top-0 z-50 shadow-[0_2px_12px_rgba(22,163,74,0.3)]">
-      <div class="max-w-[480px] mx-auto flex items-center justify-between h-14">
-        <h1 class="text-[1.2rem] font-bold">🏸 Badminton Match</h1>
-        <button
-          v-if="store.room"
-          class="bg-white/20 border-none text-white px-3.5 py-1.5 rounded-full text-[0.82rem] font-semibold cursor-pointer hover:bg-white/35"
-          @click="store.leaveRoom()"
-        >
-          Leave
-        </button>
-      </div>
-    </header>
+    <!-- Floating leave button (shown when in a room) -->
+    <div v-if="store.room" class="fixed top-3 right-3 z-50">
+      <button
+        class="bg-white border border-slate-200 text-slate-500 px-3 py-1.5 rounded-full text-[0.8rem] font-semibold cursor-pointer hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all shadow-sm"
+        @click="store.leaveRoom()"
+      >
+        Leave
+      </button>
+    </div>
 
     <!-- Error toast -->
     <Transition name="toast">
@@ -27,7 +23,7 @@
     </Transition>
 
     <!-- Views -->
-    <main class="max-w-[480px] mx-auto px-4 pt-5">
+    <main class="max-w-[480px] mx-auto px-4 pt-8">
       <HomeView        v-if="store.view === 'home'"        />
       <LobbyView       v-if="store.view === 'lobby'"       />
       <SessionView     v-if="store.view === 'session'"     />
