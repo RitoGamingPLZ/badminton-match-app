@@ -22,10 +22,12 @@ provider "google" {
 # Enable required GCP APIs
 resource "google_project_service" "apis" {
   for_each = toset([
+    "artifactregistry.googleapis.com",
     "compute.googleapis.com",
     "firestore.googleapis.com",
     "iam.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "run.googleapis.com",
   ])
   service            = each.value
   disable_on_destroy = false

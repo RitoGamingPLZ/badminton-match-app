@@ -10,21 +10,27 @@ resource "google_compute_global_address" "ipv6" {
   ip_version = "IPV6"
 }
 
+# Serverless NEG — bridges the Global LB to the Cloud Run service
+resource "google_compute_region_network_endpoint_group" "backend_neg" {
+  name                  = "badminton-backend-neg"
+  network_endpoint_type = "SERVERLESS"
+  region                = var.region
+
+  cloud_run {
+    service = google_cloud_run_v2_service.backend.name
+  }
+}
+
 resource "google_compute_backend_service" "backend" {
   name                  = "badminton-backend-service"
-  protocol              = "HTTP"
-  port_name             = "http"
+  protocol              = "HTTPS"
   load_balancing_scheme = "EXTERNAL"
-  # Match Lambda timeout — SSE connections can be long-lived
+  # Match SSE connection lifetime
   timeout_sec = 900
 
   backend {
-    group           = google_compute_region_instance_group_manager.backend_mig.instance_group
-    balancing_mode  = "UTILIZATION"
-    capacity_scaler = 1.0
+    group = google_compute_region_network_endpoint_group.backend_neg.id
   }
-
-  health_checks = [google_compute_health_check.backend.id]
 
   log_config {
     enable      = true
@@ -42,7 +48,8 @@ resource "google_compute_target_http_proxy" "lb" {
   url_map = google_compute_url_map.lb.id
 }
 
-# IPv4 forwarding rule (port 80)
+# IPv4 forwarding rule (port 80) — Cloudflare terminates TLS,
+# so the origin only needs plain HTTP
 resource "google_compute_global_forwarding_rule" "ipv4" {
   name                  = "badminton-lb-ipv4"
   ip_address            = google_compute_global_address.ipv4.address
@@ -52,8 +59,7 @@ resource "google_compute_global_forwarding_rule" "ipv4" {
   load_balancing_scheme = "EXTERNAL"
 }
 
-# IPv6 forwarding rule (port 80) — Cloudflare terminates TLS,
-# so the origin only needs plain HTTP
+# IPv6 forwarding rule (port 80)
 resource "google_compute_global_forwarding_rule" "ipv6" {
   name                  = "badminton-lb-ipv6"
   ip_address            = google_compute_global_address.ipv6.address
