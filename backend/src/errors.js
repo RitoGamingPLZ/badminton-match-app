@@ -10,6 +10,20 @@
 
 import { MAX_PLAYER_NAME_LENGTH } from './config.js';
 
+/**
+ * Thrown by service methods when a business-rule violation occurs.
+ * Route handlers pass these to next() so the Express error middleware
+ * converts them to the appropriate HTTP response.
+ */
+export class ServiceError extends Error {
+  /** @param {number} status  HTTP status code
+   *  @param {string} message Error message sent to the client */
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
 export const ERRORS = Object.freeze({
   PLAYER_NAME_REQUIRED:  'playerName is required',
   PLAYER_NAME_TOO_LONG:  `Player name must be ${MAX_PLAYER_NAME_LENGTH} characters or fewer`,

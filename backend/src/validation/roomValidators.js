@@ -1,43 +1,36 @@
 /**
- * Validators that check room state.
- * Each returns { status, error } on failure, or null on success.
+ * Room-state validators — take plain values and throw ServiceError on failure.
+ * Services call these before executing any business logic.
  */
 
+import { ServiceError } from '../errors.js';
 import { ERRORS } from '../errors.js';
 
 export function validateRoomExists(room) {
-  if (!room) return { status: 404, error: ERRORS.ROOM_NOT_FOUND };
-  return null;
+  if (!room) throw new ServiceError(404, ERRORS.ROOM_NOT_FOUND);
 }
 
-export function validateIsHost(req, room) {
-  const token = req.headers['x-host-token'] || req.body?.hostToken || '';
-  if (room.hostToken !== token) return { status: 403, error: ERRORS.NOT_HOST };
-  return null;
+export function validateIsHost(token, room) {
+  if (room.hostToken !== token) throw new ServiceError(403, ERRORS.NOT_HOST);
 }
 
 export function validateSessionStarted(room) {
-  if (!room.started) return { status: 409, error: ERRORS.SESSION_NOT_STARTED };
-  return null;
+  if (!room.started) throw new ServiceError(409, ERRORS.SESSION_NOT_STARTED);
 }
 
 export function validateSessionNotStarted(room) {
-  if (room.started) return { status: 409, error: ERRORS.SESSION_STARTED };
-  return null;
+  if (room.started) throw new ServiceError(409, ERRORS.SESSION_STARTED);
 }
 
 export function validateMinPlayers(room) {
-  if (room.players.length < 4) return { status: 400, error: ERRORS.MIN_PLAYERS };
-  return null;
+  if (room.players.length < 4) throw new ServiceError(400, ERRORS.MIN_PLAYERS);
 }
 
 export function validateActiveMatch(room) {
   const match = room.matches[room.currentMatchIndex];
-  if (!match || match.status !== 'active') return { status: 409, error: ERRORS.NO_ACTIVE_MATCH };
-  return null;
+  if (!match || match.status !== 'active') throw new ServiceError(409, ERRORS.NO_ACTIVE_MATCH);
 }
 
 export function validateUndoAvailable(room) {
-  if (!(room.undoStack || []).length) return { status: 409, error: ERRORS.NOTHING_TO_UNDO };
-  return null;
+  if (!(room.undoStack || []).length) throw new ServiceError(409, ERRORS.NOTHING_TO_UNDO);
 }

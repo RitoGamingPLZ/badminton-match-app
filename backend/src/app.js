@@ -6,6 +6,7 @@
 import express from 'express';
 import { corsHeaders } from './config.js';
 import { router } from './routes/index.js';
+import { ServiceError } from './errors.js';
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
+  if (err instanceof ServiceError) return res.status(err.status).json({ error: err.message });
   console.error('Unhandled error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
