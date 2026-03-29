@@ -2,6 +2,7 @@
  * Shared helpers used by service modules and the Lambda handler.
  */
 
+import pRetry, { AbortError } from 'p-retry';
 import { VersionConflictError } from './db/index.js';
 
 export const MAX_UNDO = 10;
@@ -59,27 +60,24 @@ export function makeSnapshot(room) {
 
 // ── Retry / transaction helpers ───────────────────────────────────────────────
 
-const RETRY_DELAYS_MS = [300, 600, 900];
+const TRANSACTION_DELAYS_MS = [300, 600, 900];
 
 export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
- * Retry a DB operation up to 3 times with progressive delay on transient errors.
- * VersionConflictError is re-thrown immediately — it is handled at the
- * transaction level, not here.
+ * Retry a DB operation up to 3 times with exponential backoff (300 ms base).
+ * VersionConflictError is never retried — it is handled at the transaction level.
+ * Uses p-retry under the hood.
  */
-export async function withRetry(fn) {
-  let lastErr;
-  for (let i = 0; i < RETRY_DELAYS_MS.length; i++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (e instanceof VersionConflictError) throw e;
-      lastErr = e;
-      if (i < RETRY_DELAYS_MS.length - 1) await sleep(RETRY_DELAYS_MS[i]);
-    }
-  }
-  throw lastErr;
+export function withRetry(fn) {
+  return pRetry(fn, {
+    retries: 2,          // 2 retries = 3 total attempts
+    minTimeout: 300,
+    factor: 2,           // 300 ms → 600 ms
+    onFailedAttempt(err) {
+      if (err instanceof VersionConflictError) throw new AbortError(err);
+    },
+  });
 }
 
 /**
@@ -102,7 +100,7 @@ export async function withRetry(fn) {
  * @param {Function} makeCommand - (req, room) => Command instance
  */
 export async function withTransaction(db, code, req, res, validate, makeCommand) {
-  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+  for (let attempt = 0; attempt < TRANSACTION_DELAYS_MS.length; attempt++) {
     const room = await withRetry(() => db.getRoom(code));
 
     const invalid = validate(req, room);
@@ -121,9 +119,9 @@ export async function withTransaction(db, code, req, res, validate, makeCommand)
       return res.status(200).json({ room: safeRoom(updated) });
     } catch (e) {
       if (e instanceof VersionConflictError) {
-        if (attempt === RETRY_DELAYS_MS.length - 1)
+        if (attempt === TRANSACTION_DELAYS_MS.length - 1)
           return res.status(409).json({ error: 'Version conflict — reload and retry' });
-        await sleep(RETRY_DELAYS_MS[attempt]);
+        await sleep(TRANSACTION_DELAYS_MS[attempt]);
         continue;
       }
       throw e;
@@ -146,7 +144,7 @@ export async function withTransaction(db, code, req, res, validate, makeCommand)
  * @param {Function} makePatch - (req, room) => patch object for db.saveState
  */
 export async function withDirectTransaction(db, code, req, res, validate, makePatch) {
-  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+  for (let attempt = 0; attempt < TRANSACTION_DELAYS_MS.length; attempt++) {
     const room = await withRetry(() => db.getRoom(code));
 
     const invalid = validate(req, room);
@@ -161,9 +159,9 @@ export async function withDirectTransaction(db, code, req, res, validate, makePa
       return res.status(200).json({ room: safeRoom(updated) });
     } catch (e) {
       if (e instanceof VersionConflictError) {
-        if (attempt === RETRY_DELAYS_MS.length - 1)
+        if (attempt === TRANSACTION_DELAYS_MS.length - 1)
           return res.status(409).json({ error: 'Version conflict — reload and retry' });
-        await sleep(RETRY_DELAYS_MS[attempt]);
+        await sleep(TRANSACTION_DELAYS_MS[attempt]);
         continue;
       }
       throw e;

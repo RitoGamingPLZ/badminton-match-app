@@ -11,7 +11,8 @@
     "@aws-sdk/client-dynamodb": "^3.540.0",
     "@aws-sdk/lib-dynamodb": "^3.540.0",
     "express": "^4.19.0",
-    "mongodb": "^6.5.0"
+    "mongodb": "^6.5.0",
+    "p-retry": "^8.0.0"
   },
   "devDependencies": {
     "esbuild": "^0.20.0"
