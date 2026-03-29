@@ -13,7 +13,7 @@
  *   logEntry  — { type, matchNum, description } appended to operationLog
  */
 
-import { regenerateUnpinnedMatches } from './matchGen.js';
+import { generateMatches, regenerateUnpinnedMatches } from './matchGen.js';
 
 // ── MatchDoneCommand ──────────────────────────────────────────────────────────
 
@@ -60,27 +60,74 @@ export class MatchDoneCommand {
 // ── SkipMatchCommand ──────────────────────────────────────────────────────────
 
 export class SkipMatchCommand {
+  constructor(playerName) {
+    this.playerName = playerName; // name of the player opting out
+  }
+
   execute(room) {
     const idx   = room.currentMatchIndex;
     const match = room.matches[idx];
+    const { playerName } = this;
+
+    // Players on the court excluding the one who wants to skip
+    const remaining = [...match.team1, ...match.team2].filter(n => n !== playerName);
+
+    // Bench players: anyone in the room not currently in this match
+    const inMatch = new Set([...match.team1, ...match.team2]);
+    const bench   = room.players
+      .filter(p => !inMatch.has(p.name))
+      .sort((a, b) => a.gamesPlayed - b.gamesPlayed);
+
+    if (bench.length === 0) {
+      // No substitute available — skip the whole match
+      const updatedMatches = [...room.matches];
+      updatedMatches[idx] = { ...match, status: 'skipped', winner: null };
+
+      const nextIdx = idx + 1;
+      if (nextIdx < updatedMatches.length) {
+        updatedMatches[nextIdx] = { ...updatedMatches[nextIdx], status: 'active' };
+      }
+
+      return {
+        patch: {
+          matches:           updatedMatches,
+          currentMatchIndex: nextIdx,
+        },
+        logEntry: {
+          type:        'match_skipped',
+          matchNum:    idx + 1,
+          description: `Match ${idx + 1}: ${playerName} skipped — no substitute available, match skipped`,
+        },
+      };
+    }
+
+    // Sub in the bench player with fewest games played
+    const sub = bench[0];
+    const pool = remaining.map(name => {
+      const p = room.players.find(rp => rp.name === name);
+      return { name, gamesPlayed: p?.gamesPlayed ?? 0 };
+    });
+    pool.push({ name: sub.name, gamesPlayed: sub.gamesPlayed });
+
+    // Generate a fair 2v2 split from the 4-player pool
+    const [newMatch] = generateMatches(pool, 1, match.id);
 
     const updatedMatches = [...room.matches];
-    updatedMatches[idx] = { ...match, status: 'skipped', winner: null };
-
-    const nextIdx = idx + 1;
-    if (nextIdx < updatedMatches.length) {
-      updatedMatches[nextIdx] = { ...updatedMatches[nextIdx], status: 'active' };
-    }
+    updatedMatches[idx] = {
+      ...(newMatch ?? match),
+      id:     match.id,
+      status: 'active',
+      winner: null,
+    };
 
     return {
       patch: {
-        matches:           updatedMatches,
-        currentMatchIndex: nextIdx,
+        matches: updatedMatches,
       },
       logEntry: {
         type:        'match_skipped',
         matchNum:    idx + 1,
-        description: `Match ${idx + 1}: skipped (${match.team1.join(' & ')} vs ${match.team2.join(' & ')})`,
+        description: `Match ${idx + 1}: ${playerName} skipped — ${sub.name} substituted in`,
       },
     };
   }

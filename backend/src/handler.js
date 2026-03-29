@@ -5,6 +5,9 @@
  * SSE connections can stay open for up to 15 minutes without hitting the
  * 29-second API Gateway limit.  Non-SSE routes write once and end immediately.
  *
+ * Routing uses an express.Router for URL pattern matching and param extraction.
+ * SSE is handled before Express to preserve Lambda Response Streaming.
+ *
  * Routes
  * ──────
  * POST   /rooms                      → createRoom
@@ -27,6 +30,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { Router } from 'express';
 import { getRepository, VersionConflictError } from './db/index.js';
 import { generateMatches, calculateInitialRounds } from './matchGen.js';
 import { MatchDoneCommand, SkipMatchCommand, EditMatchCommand } from './commands.js';
@@ -244,10 +248,16 @@ async function handleSkipMatch(code, event, stream) {
   if (room.hostToken !== hostToken(event)) return err(stream, 403, 'Not the host');
   if (!room.started) return err(stream, 409, 'Session not started');
 
+  const { playerName, version } = body;
+  if (!playerName?.trim()) return err(stream, 400, 'playerName is required');
+
   const match = room.matches[room.currentMatchIndex];
   if (!match || match.status !== 'active') return err(stream, 409, 'No active match');
 
-  return runCommand(code, new SkipMatchCommand(), room, body.version ?? room.version, stream);
+  const allPlayers = new Set([...match.team1, ...match.team2]);
+  if (!allPlayers.has(playerName)) return err(stream, 400, `${playerName} is not in the current match`);
+
+  return runCommand(code, new SkipMatchCommand(playerName), room, version ?? room.version, stream);
 }
 
 async function handleEditMatch(code, event, stream) {
@@ -378,13 +388,51 @@ async function handleSSE(code, event, responseStream) {
   stream.end();
 }
 
+// ── Express Router (URL matching + param extraction for Lambda) ───────────────
+
+const router = Router();
+
+router.post('/rooms',                    (req, res) => handleCreateRoom(req._event, res._stream));
+router.get('/rooms/:code',               (req, res) => handleGetRoom(req.params.code, res._stream));
+router.post('/rooms/:code/join',         (req, res) => handleJoinRoom(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/start',        (req, res) => handleStartSession(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/match/done',   (req, res) => handleMarkMatchDone(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/match/skip',   (req, res) => handleSkipMatch(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/undo',         (req, res) => handleUndoLastOperation(req.params.code, req._event, res._stream));
+router.patch('/rooms/:code/match',       (req, res) => handleEditMatch(req.params.code, req._event, res._stream));
+router.post('/rooms/:code/matches',      (req, res) => handleAddMatches(req.params.code, req._event, res._stream));
+
+/**
+ * Dispatch a Lambda event through the Express router.
+ * Builds a minimal req/res shim so the router can do URL matching and param
+ * extraction, then delegates to the real Lambda stream-based handler functions.
+ */
+function dispatchViaRouter(event, responseStream) {
+  return new Promise((resolve) => {
+    const method  = (event.requestContext?.http?.method ?? event.httpMethod ?? 'GET').toUpperCase();
+    const url     = event.rawPath ?? event.path ?? '/';
+
+    // Minimal req shim — only needs the fields Express Router uses for matching
+    const req = { method, url, _event: event };
+    // Minimal res shim — only needs to exist; real response goes through responseStream
+    const res = { _stream: responseStream };
+
+    router(req, res, () => {
+      err(responseStream, 404, 'Not found');
+      resolve();
+    });
+
+    // Resolve after any async handler completes (handlers call stream.end() themselves)
+    // We can't await them directly here, so we let the Lambda runtime wait on the stream
+  });
+}
+
 // ── Main router ───────────────────────────────────────────────────────────────
 
 // eslint-disable-next-line no-undef
 export const handler = awslambda.streamifyResponse(async (event, responseStream) => {
   const method  = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
   const rawPath = event.rawPath ?? event.path ?? '/';
-  const parts   = rawPath.split('/').filter(Boolean);
 
   if (method === 'OPTIONS') {
     // eslint-disable-next-line no-undef
@@ -393,23 +441,14 @@ export const handler = awslambda.streamifyResponse(async (event, responseStream)
     return;
   }
 
+  // SSE must bypass Express — it needs the raw Lambda response stream for long-lived streaming
+  const parts = rawPath.split('/').filter(Boolean);
+  if (method === 'GET' && parts[2] === 'events') {
+    return await handleSSE(parts[1], event, responseStream);
+  }
+
   try {
-    if (method === 'POST' && parts.length === 1 && parts[0] === 'rooms')
-      return await handleCreateRoom(event, responseStream);
-
-    const code = parts[1];
-
-    if (method === 'GET'   && parts.length === 2)                          return await handleGetRoom(code, responseStream);
-    if (method === 'GET'   && parts[2] === 'events')                       return await handleSSE(code, event, responseStream);
-    if (method === 'POST'  && parts[2] === 'join')                         return await handleJoinRoom(code, event, responseStream);
-    if (method === 'POST'  && parts[2] === 'start')                        return await handleStartSession(code, event, responseStream);
-    if (method === 'POST'  && parts[2] === 'match' && parts[3] === 'done') return await handleMarkMatchDone(code, event, responseStream);
-    if (method === 'POST'  && parts[2] === 'match' && parts[3] === 'skip') return await handleSkipMatch(code, event, responseStream);
-    if (method === 'POST'  && parts[2] === 'undo')                         return await handleUndoLastOperation(code, event, responseStream);
-    if (method === 'PATCH' && parts[2] === 'match' && !parts[3])           return await handleEditMatch(code, event, responseStream);
-    if (method === 'POST'  && parts[2] === 'matches')                      return await handleAddMatches(code, event, responseStream);
-
-    err(responseStream, 404, 'Not found');
+    await dispatchViaRouter(event, responseStream);
   } catch (error) {
     console.error('Unhandled error:', error);
     err(responseStream, 500, 'Internal server error');
