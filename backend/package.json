@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Node.js REST + SSE backend for Badminton Match App",
   "scripts": {
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "test": "node --test src/__tests__/*.test.js"
   },
   "dependencies": {
     "@google-cloud/firestore": "^7.0.0",
