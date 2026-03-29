@@ -54,14 +54,22 @@ jobs:
         with:
           terraform_version: '~1.7'
 
-      - name: Terraform Init (local backend)
+      - name: Terraform Init — AWS (local backend)
         working-directory: infra
         run: terraform init -backend=false
 
-      - name: Terraform Validate
+      - name: Terraform Validate — AWS
         working-directory: infra
         run: terraform validate
 
-      - name: Terraform Format check
+      - name: Terraform Init — GCP (local backend)
+        working-directory: infra/gcp
+        run: terraform init -backend=false
+
+      - name: Terraform Validate — GCP
+        working-directory: infra/gcp
+        run: terraform validate
+
+      - name: Terraform Format check (all modules)
         working-directory: infra
         run: terraform fmt -check -recursive

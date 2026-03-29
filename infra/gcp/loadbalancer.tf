@@ -16,7 +16,7 @@ resource "google_compute_backend_service" "backend" {
   port_name             = "http"
   load_balancing_scheme = "EXTERNAL"
   # Match Lambda timeout — SSE connections can be long-lived
-  timeout_sec           = 900
+  timeout_sec = 900
 
   backend {
     group           = google_compute_region_instance_group_manager.backend_mig.instance_group

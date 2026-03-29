@@ -82,10 +82,10 @@ resource "google_compute_instance_template" "backend" {
 
 # Health check used by both the LB backend service and MIG auto-healing
 resource "google_compute_health_check" "backend" {
-  name               = "badminton-backend-health"
-  check_interval_sec = 10
-  timeout_sec        = 5
-  healthy_threshold  = 2
+  name                = "badminton-backend-health"
+  check_interval_sec  = 10
+  timeout_sec         = 5
+  healthy_threshold   = 2
   unhealthy_threshold = 3
 
   http_health_check {
