@@ -25,16 +25,16 @@ app.use((req, res, next) => {
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
-app.post('/rooms',                  createRoom);
-app.get('/rooms/:code',             getRoom);
-app.get('/rooms/:code/events',      sseEvents);
-app.post('/rooms/:code/join',       joinRoom);
-app.post('/rooms/:code/start',      startSession);
-app.post('/rooms/:code/match/done', markMatchDone);
-app.post('/rooms/:code/match/skip', skipMatch);
-app.patch('/rooms/:code/match',     editMatch);
-app.post('/rooms/:code/undo',       undoLastOperation);
-app.post('/rooms/:code/matches',    addMatches);
+app.post('/rooms',                   createRoom);
+app.get('/rooms/:code',              getRoom);
+app.get('/rooms/:code/events',       sseEvents);
+app.post('/rooms/:code/join',        joinRoom);
+app.post('/rooms/:code/start',       startSession);
+app.post('/rooms/:code/match/done',  markMatchDone);
+app.post('/rooms/:code/match/skip',  skipMatch);
+app.post('/rooms/:code/undo',        undoLastOperation);
+app.patch('/rooms/:code/match',      editMatch);
+app.post('/rooms/:code/matches',     addMatches);
 
 // ── Fallbacks ─────────────────────────────────────────────────────────────────
 

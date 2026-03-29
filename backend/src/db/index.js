@@ -15,12 +15,16 @@
  * of which driver is in use.
  *
  * Supported drivers (DB_DRIVER env var):
- *   mongodb  — MongoDB (default; docker-compose / Cloud Run / self-hosted)
- *   memory   — In-process Map (tests / zero-dependency local runs)
+ *   dynamodb  — AWS DynamoDB (default, used in Lambda)
+ *   mongodb   — MongoDB (docker-compose / self-hosted)
+ *   firestore — GCP Firestore Native (GCP VM deployments)
+ *   memory    — In-process Map (tests / zero-dependency local runs)
  */
 
-import { MongoRepository }    from './MongoRepository.js';
-import { InMemoryRepository } from './InMemoryRepository.js';
+import { DynamoRepository }     from './DynamoRepository.js';
+import { MongoRepository }      from './MongoRepository.js';
+import { InMemoryRepository }   from './InMemoryRepository.js';
+import { FirestoreRepository }  from './FirestoreRepository.js';
 
 let _repo = null;
 
@@ -30,15 +34,22 @@ export function getRepository() {
   const driver = (process.env.DB_DRIVER || 'mongodb').toLowerCase();
 
   switch (driver) {
+    case 'mongodb':
+      _repo = new MongoRepository(
+        process.env.MONGO_URI    || 'mongodb://localhost:27017',
+        process.env.MONGO_DB     || 'badminton',
+      );
+      break;
+
+    case 'firestore':
+      _repo = new FirestoreRepository();
+      break;
+
     case 'memory':
       _repo = new InMemoryRepository();
       break;
 
-    default: // 'mongodb'
-      _repo = new MongoRepository(
-        process.env.MONGO_URI || 'mongodb://localhost:27017',
-        process.env.MONGO_DB  || 'badminton',
-      );
+    default:
       break;
   }
 
