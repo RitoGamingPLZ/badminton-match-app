@@ -132,7 +132,7 @@ const activeForm   = ref(null)
 const hostName     = ref('')
 const extraPlayers = ref([])
 const joinCode     = ref('')
-const joinName     = ref('')
+const joinName     = ref(localStorage.getItem('bma_name') ?? '')
 
 const STORAGE_KEY = 'bma_last_players'
 
