@@ -1,64 +1,14 @@
 /**
- * Shared helpers used by service modules and the Lambda handler.
+ * Retry and transaction helpers for repository operations.
+ *
+ * - withRetry       — wraps a single DB call with exponential-backoff retries
+ * - withTransaction — executes a Command with optimistic-concurrency retry loop
+ * - withDirectTransaction — like withTransaction but for patch-factory operations (e.g. undo)
  */
 
 import pRetry, { AbortError } from 'p-retry';
-import { VersionConflictError } from './db/index.js';
-
-export const MAX_UNDO = 10;
-export const MAX_LOG  = 50;
-
-// ── CORS ──────────────────────────────────────────────────────────────────────
-
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
-
-export const corsHeaders = {
-  'Access-Control-Allow-Origin':  ALLOWED_ORIGIN,
-  'Access-Control-Allow-Headers': 'Content-Type, X-Host-Token',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
-};
-
-// ── Room serialisation ────────────────────────────────────────────────────────
-
-/** Strip internal fields before sending to clients. */
-export function safeRoom(room) {
-  return {
-    code:                room.code,
-    version:             room.version,
-    format:              room.format,
-    started:             room.started,
-    players:             room.players.map(p => ({ name: p.name, gamesPlayed: p.gamesPlayed })),
-    matches:             room.matches,
-    currentMatchIndex:   room.currentMatchIndex,
-    operationLog:        room.operationLog        || [],
-    unavailablePlayers:  room.unavailablePlayers  || [],
-    canUndo:             (room.undoStack          || []).length > 0,
-  };
-}
-
-// ── Undo / log stack helpers ──────────────────────────────────────────────────
-
-export function pushUndo(room, snapshot) {
-  return [...(room.undoStack || []), snapshot].slice(-MAX_UNDO);
-}
-
-export function pushLog(room, entry) {
-  return [...(room.operationLog || []), { ...entry, ts: new Date().toISOString() }].slice(-MAX_LOG);
-}
-
-// ── Undo snapshot ─────────────────────────────────────────────────────────────
-
-/** Snapshot of all fields that commands may mutate (used for undo). */
-export function makeSnapshot(room) {
-  return {
-    matches:             room.matches,
-    players:             room.players,
-    currentMatchIndex:   room.currentMatchIndex,
-    unavailablePlayers:  room.unavailablePlayers || [],
-  };
-}
-
-// ── Retry / transaction helpers ───────────────────────────────────────────────
+import { VersionConflictError } from './errors.js';
+import { makeSnapshot, pushUndo, pushLog, safeRoom } from '../roomUtils.js';
 
 const TRANSACTION_DELAYS_MS = [300, 600, 900];
 
@@ -66,14 +16,13 @@ export const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
  * Retry a DB operation up to 3 times with exponential backoff (300 ms base).
- * VersionConflictError is never retried — it is handled at the transaction level.
- * Uses p-retry under the hood.
+ * VersionConflictError is never retried here — it is handled at the transaction level.
  */
 export function withRetry(fn) {
   return pRetry(fn, {
-    retries: 2,          // 2 retries = 3 total attempts
+    retries: 2,       // 2 retries = 3 total attempts
     minTimeout: 300,
-    factor: 2,           // 300 ms → 600 ms
+    factor: 2,        // 300 ms → 600 ms
     onFailedAttempt(err) {
       if (err instanceof VersionConflictError) throw new AbortError(err);
     },
@@ -81,7 +30,7 @@ export function withRetry(fn) {
 }
 
 /**
- * Execute a Command transactionally.
+ * Execute a Command transactionally with optimistic-concurrency retry.
  *
  * On each attempt:
  *   1. Re-read the room (with retry on transient errors)
@@ -90,7 +39,7 @@ export function withRetry(fn) {
  *   4. Persist (with retry on transient errors)
  *
  * On VersionConflictError: wait progressively and retry the whole cycle
- * (re-read → re-validate → re-execute → re-save) up to 3 times.
+ * up to 3 times total.
  *
  * @param {object}   db          - repository instance
  * @param {string}   code        - room code
@@ -130,11 +79,11 @@ export async function withTransaction(db, code, req, res, validate, makeCommand)
 }
 
 /**
- * Transactional direct state save (for operations that don't follow the
- * Command pattern, e.g. undo).
+ * Transactional direct state save for operations that don't follow the
+ * Command pattern (e.g. undo).
  *
- * Same retry semantics as withTransaction, but instead of a Command it
- * accepts a patch factory: (req, room) => patch object.
+ * Same retry semantics as withTransaction but accepts a patch factory
+ * instead of a command factory.
  *
  * @param {object}   db        - repository instance
  * @param {string}   code      - room code

@@ -17,12 +17,19 @@ badminton-match-app/
 │
 ├── backend/                Node.js REST + SSE API
 │   ├── src/
-│   │   ├── handler.js      All routes — REST + SSE streaming
-│   │   ├── server.js       Local HTTP server (no Lambda runtime needed)
-│   │   ├── commands.js     Command pattern — MatchDone, Skip, EditMatch
+│   │   ├── handler.js      Lambda entry point — REST + SSE streaming
+│   │   ├── app.js          Express app — local dev (reuses Lambda route handlers)
+│   │   ├── server.js       Local HTTP server (wraps app.js)
+│   │   ├── config.js       Shared constants (CORS headers, limits)
+│   │   ├── errors.js       Centralised error message constants
+│   │   ├── roomUtils.js    Room serialisation + undo/log stack helpers
 │   │   ├── matchGen.js     Fair match generation (MinHeap, O(log n))
+│   │   ├── commands/       Command pattern — MatchDone, Skip, EditMatch
+│   │   ├── routes/         Lambda route handlers (shared with local Express)
+│   │   ├── validation/     Input + room-state validators
 │   │   └── db/
 │   │       ├── index.js            Repository factory (DB_DRIVER env var)
+│   │       ├── transaction.js      withRetry / withTransaction helpers
 │   │       ├── DynamoRepository.js AWS DynamoDB (production / Lambda)
 │   │       ├── MongoRepository.js  MongoDB (docker-compose / self-hosted)
 │   │       └── InMemoryRepository.js Map-backed (tests / zero-dep local)
@@ -52,7 +59,7 @@ badminton-match-app/
 | Feature | Details |
 |---|---|
 | **Create & join** | Host creates a room with a 4-digit code; players join on their own phones |
-| **Doubles / Singles / Both** | Format chosen in lobby; generates a full fair schedule |
+| **Doubles** | Format is doubles (2v2); generates a full fair schedule |
 | **Fair scheduling** | MinHeap-based O(log n) selection — players with fewest games go first; team splits minimise repeated pairings |
 | **Skip match** | Skip the active match without awarding points |
 | **Undo** | Undo the last operation (capped at 10 levels) |
@@ -173,13 +180,13 @@ Browser  ←  SSE: room state v6           ←  SSE handler polls DB every 2s
 
 ### Command pattern
 
-All state-mutating operations are Command objects (`backend/src/commands.js`):
+All state-mutating operations are Command objects in `backend/src/commands/`:
 
 ```
 command.execute(room) → { patch, logEntry }
 ```
 
-A central `runCommand()` in `handler.js` handles undo-snapshot and operation-log bookkeeping for every command uniformly. Undo restores a full state snapshot (not re-execution).
+A central `runCommand()` in `routes/helpers.js` handles undo-snapshot and operation-log bookkeeping for every command uniformly. Undo restores a full state snapshot (not re-execution).
 
 ### Database abstraction
 
@@ -197,5 +204,4 @@ All drivers implement the same interface and normalise version-conflict errors t
 
 - **MinHeap** keeps players sorted by `gamesPlayed` in O(log n)
 - **Doubles:** picks 4 lowest-count players, evaluates all 3 possible 2v2 splits, chooses the split with fewest repeated partner pairings
-- **Singles:** pulls top 8 candidates, finds the pair minimising `(matchup_repetitions × 100) + combined_gamesPlayed`
 - **Pinned matches** survive regeneration — `regenerateUnpinnedMatches()` preserves manually edited matches in-place and inflates virtual gamesPlayed for players locked into pinned slots

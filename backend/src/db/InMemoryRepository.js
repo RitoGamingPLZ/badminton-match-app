@@ -3,17 +3,29 @@
  * where you don't want a real database.
  *
  * State lives in a plain Map and is lost when the process exits.
- * No TTL enforcement; documents never expire in memory.
+ * Expired rooms are lazily pruned on each getRoom call.
  */
 
 import { VersionConflictError } from './errors.js';
 
+const TTL_MS = 24 * 60 * 60 * 1000;
+
 export class InMemoryRepository {
   #store = new Map();
+
+  // ── TTL ─────────────────────────────────────────────────────────────────────
+
+  #purgeExpired() {
+    const now = Date.now();
+    for (const [code, room] of this.#store) {
+      if (room.ttl && room.ttl < now) this.#store.delete(code);
+    }
+  }
 
   // ── Read ────────────────────────────────────────────────────────────────────
 
   async getRoom(code) {
+    this.#purgeExpired();
     const room = this.#store.get(code);
     return room ? structuredClone(room) : null;
   }
@@ -24,7 +36,7 @@ export class InMemoryRepository {
     const item = {
       ...room,
       version: 1,
-      ttl: Date.now() + 24 * 60 * 60 * 1000,
+      ttl: Date.now() + TTL_MS,
     };
     this.#store.set(room.code, structuredClone(item));
     return structuredClone(item);
@@ -46,12 +58,12 @@ export class InMemoryRepository {
   async saveState(code, patch, expectedVersion) {
     return this.#apply(code, expectedVersion, () => {
       const fields = {};
-      if (patch.matches !== undefined)           fields.matches           = patch.matches;
-      if (patch.players !== undefined)           fields.players           = patch.players;
-      if (patch.currentMatchIndex !== undefined) fields.currentMatchIndex = patch.currentMatchIndex;
-      if (patch.undoStack !== undefined)           fields.undoStack           = patch.undoStack;
-      if (patch.operationLog !== undefined)        fields.operationLog        = patch.operationLog;
-      if (patch.unavailablePlayers !== undefined)  fields.unavailablePlayers  = patch.unavailablePlayers;
+      if (patch.matches !== undefined)            fields.matches            = patch.matches;
+      if (patch.players !== undefined)            fields.players            = patch.players;
+      if (patch.currentMatchIndex !== undefined)  fields.currentMatchIndex  = patch.currentMatchIndex;
+      if (patch.undoStack !== undefined)          fields.undoStack          = patch.undoStack;
+      if (patch.operationLog !== undefined)       fields.operationLog       = patch.operationLog;
+      if (patch.unavailablePlayers !== undefined) fields.unavailablePlayers = patch.unavailablePlayers;
       return fields;
     });
   }
@@ -61,7 +73,7 @@ export class InMemoryRepository {
   async addPlayer(code, player, expectedVersion) {
     return this.#apply(code, expectedVersion, room => ({
       players: [...room.players, player],
-      ttl: Date.now() + 24 * 60 * 60 * 1000,
+      ttl: Date.now() + TTL_MS,
     }));
   }
 

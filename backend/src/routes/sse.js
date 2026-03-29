@@ -5,7 +5,9 @@
  * to support long-lived connections beyond the API Gateway 29s limit.
  */
 
-import { corsHeaders, safeRoom } from '../helpers.js';
+import { corsHeaders } from '../config.js';
+import { safeRoom } from '../roomUtils.js';
+import { withRetry } from '../db/transaction.js';
 import { db } from './helpers.js';
 
 const SSE_MAX_MS  = 10 * 60 * 1000;
@@ -34,7 +36,7 @@ export async function handleSSE(code, event, responseStream) {
 
   try {
     while (Date.now() - startTime < SSE_MAX_MS) {
-      const room = await db.getRoom(code);
+      const room = await withRetry(() => db.getRoom(code));
       if (!room) { write('event: error\ndata: {"message":"Room not found"}\n\n'); break; }
 
       if (room.version > clientVersion) {

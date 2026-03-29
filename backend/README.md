@@ -16,16 +16,37 @@ Node.js REST + SSE API. Runs on **AWS Lambda** in production and as a plain **No
 ```
 backend/
 ├── src/
-│   ├── handler.js        All routes — REST + SSE streaming
-│   ├── server.js         Local dev HTTP server (wraps handler.js)
-│   ├── commands.js       Command pattern — MatchDone, Skip, EditMatch
-│   ├── matchGen.js       Fair match generation (MinHeap, O(log n))
+│   ├── handler.js          Lambda entry point — REST + SSE streaming
+│   ├── app.js              Express app — local dev (reuses Lambda route handlers)
+│   ├── server.js           Local dev HTTP server (wraps app.js)
+│   ├── config.js           Shared constants: CORS headers, MAX_UNDO, MAX_LOG, MAX_PLAYER_NAME_LENGTH
+│   ├── errors.js           Centralised error message constants (ERRORS map + dynamic helpers)
+│   ├── roomUtils.js        Room serialisation (safeRoom) + undo/log stack helpers
+│   ├── matchGen.js         Fair match generation (MinHeap, O(log n))
+│   ├── commands/
+│   │   ├── Command.js          Abstract base class
+│   │   ├── MatchDoneCommand.js Mark match done, advance session
+│   │   ├── SkipMatchCommand.js Skip/substitute a player
+│   │   ├── EditMatchCommand.js Edit teams + pin + regenerate pending
+│   │   └── index.js            Re-exports
+│   ├── routes/
+│   │   ├── index.js        Express Router — wires Lambda handlers for URL matching
+│   │   ├── helpers.js      Lambda response utils: jsonResponse, err, parseBody, hostToken, runCommand
+│   │   ├── rooms.js        Room lifecycle: create, join, get, start, addMatches
+│   │   ├── matches.js      Match operations: done, skip, edit
+│   │   ├── session.js      Session control: undo
+│   │   └── sse.js          SSE stream handler
+│   ├── validation/
+│   │   ├── index.js            Re-exports
+│   │   ├── inputValidators.js  Request body validation
+│   │   └── roomValidators.js   Room state validation
 │   └── db/
-│       ├── index.js      Repository factory (reads DB_DRIVER env var)
-│       ├── errors.js     VersionConflictError (shared across drivers)
+│       ├── index.js              Repository factory (reads DB_DRIVER env var)
+│       ├── errors.js             VersionConflictError (shared across drivers)
+│       ├── transaction.js        withRetry, withTransaction, withDirectTransaction
 │       ├── DynamoRepository.js   AWS DynamoDB (production)
 │       ├── MongoRepository.js    MongoDB (docker-compose / self-hosted)
-│       └── InMemoryRepository.js Map-backed store (tests / zero-dep local)
+│       └── InMemoryRepository.js Map-backed store (tests / zero-dependency local)
 ├── build.mjs             esbuild script → dist/lambda.zip
 ├── Dockerfile            Local dev container (runs server.js)
 └── package.json
@@ -38,7 +59,6 @@ backend/
 | `POST` | `/rooms` | Create a room — returns `hostToken` |
 | `POST` | `/rooms/:code/join` | Join a room by code |
 | `GET` | `/rooms/:code` | Fetch current room state |
-| `PATCH` | `/rooms/:code/format` | Change format (host only, pre-start) |
 | `POST` | `/rooms/:code/start` | Generate matches and start session (host only) |
 | `POST` | `/rooms/:code/match/done` | Mark active match done, advance (host only) |
 | `POST` | `/rooms/:code/match/skip` | Skip active match, advance (host only) |
@@ -69,7 +89,6 @@ getRoom(code)
 createRoom(room)
 saveState(code, patch, expectedVersion)
 addPlayer(code, player, expectedVersion)
-setFormat(code, format, expectedVersion)
 startSession(code, matches, expectedVersion)
 appendMatches(code, newMatches, expectedVersion)
 ```
@@ -87,21 +106,25 @@ Every room has a `version` integer. All mutations:
 
 ## Command pattern
 
-State-mutating operations use the Command pattern (`src/commands.js`):
+State-mutating operations use the Command pattern (`src/commands/`):
 
 ```
 command.execute(room) → { patch, logEntry }
 ```
 
-The central `runCommand()` in `handler.js` handles undo-snapshot and operation-log bookkeeping for every command uniformly.
+The central `runCommand()` in `routes/helpers.js` handles undo-snapshot and operation-log bookkeeping for every command uniformly.
 
 | Command | Trigger |
 |---|---|
 | `MatchDoneCommand(winner)` | `POST /match/done` — marks done, increments gamesPlayed |
-| `SkipMatchCommand` | `POST /match/skip` — marks skipped, no stat change |
+| `SkipMatchCommand(playerName)` | `POST /match/skip` — marks skipped or substitutes bench player |
 | `EditMatchCommand(idx, t1, t2)` | `PATCH /match` — pins match, regenerates pending |
 
 Undo is **not** a command — it restores a full state snapshot from the undo stack.
+
+## Local dev and Lambda sharing the same handlers
+
+`app.js` installs a lightweight `awslambda` shim before Express processes any requests. The shim translates `awslambda.HttpResponseStream.from(res, {statusCode, headers})` into standard Express calls so the Lambda route handlers in `routes/` work identically in both environments.
 
 ## Environment variables
 
@@ -167,3 +190,11 @@ Required GitHub Actions secrets before first deploy:
 | `AWS_REGION` | Target region (e.g. `ap-southeast-1`) |
 | `VITE_API_BASE` | Lambda Function URL for frontend build |
 | `ALLOWED_ORIGIN` | Frontend URL for CORS (e.g. `https://your-app.com`) |
+
+## TODO / Future improvements
+
+- **Tests** — no test suite exists yet; unit tests for commands and integration tests for the API endpoints are the highest-value addition
+- **Rate limiting** — no per-IP limit on room creation; trivial to abuse without auth
+- **Max total matches per room** — `addMatches` is capped at 20 per call but has no lifetime cap; a ceiling of ~200 matches per room would prevent runaway memory usage
+- **TypeScript / JSDoc types** — the data model is well-defined but not type-checked; JSDoc annotations on `Room`, `Match`, and `Player` shapes would catch shape mismatches at editor time
+- **Distributed tracing** — structured request logging exists (`logRequest` in `routes/helpers.js`) but is not yet wired up to all handlers; a CloudWatch Insights-compatible log format would aid production debugging

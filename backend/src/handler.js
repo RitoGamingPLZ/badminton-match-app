@@ -23,7 +23,7 @@
  * OPTIONS *                          → CORS preflight
  */
 
-import { corsHeaders } from './helpers.js';
+import { corsHeaders } from './config.js';
 import { router } from './routes/index.js';
 import { handleSSE } from './routes/sse.js';
 import { err } from './routes/helpers.js';

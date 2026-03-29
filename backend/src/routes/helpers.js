@@ -2,7 +2,9 @@
  * Lambda-specific request/response helpers shared across route modules.
  */
 
-import { corsHeaders, safeRoom, makeSnapshot, pushUndo, pushLog } from '../helpers.js';
+import { corsHeaders } from '../config.js';
+import { safeRoom, makeSnapshot, pushUndo, pushLog } from '../roomUtils.js';
+import { withRetry } from '../db/transaction.js';
 import { getRepository, VersionConflictError } from '../db/index.js';
 
 export const db = getRepository();
@@ -33,6 +35,12 @@ export function hostToken(event) {
   return event.headers?.['x-host-token'] || parseBody(event).hostToken || '';
 }
 
+// ── Request logging ───────────────────────────────────────────────────────────
+
+export function logRequest(method, path, status) {
+  console.log(JSON.stringify({ ts: new Date().toISOString(), method, path, status }));
+}
+
 // ── Command executor ──────────────────────────────────────────────────────────
 
 export async function runCommand(code, command, room, expectedVersion, stream) {
@@ -42,10 +50,8 @@ export async function runCommand(code, command, room, expectedVersion, stream) {
   const operationLog = pushLog(room, logEntry);
 
   try {
-    const updated = await db.saveState(
-      code,
-      { ...patch, undoStack, operationLog },
-      expectedVersion,
+    const updated = await withRetry(() =>
+      db.saveState(code, { ...patch, undoStack, operationLog }, expectedVersion)
     );
     jsonResponse(stream, 200, { room: safeRoom(updated) });
   } catch (e) {
