@@ -8,6 +8,7 @@ import {
   validateTeamPlayers,
   validateMatchExists,
   validateMatchEditable,
+  validatePlayerInMatch,
 } from '../validation/inputValidators.js';
 import {
   validateRoomExists,
@@ -16,6 +17,7 @@ import {
   validateSessionNotStarted,
   validateMinPlayers,
   validateActiveMatch,
+  validateUndoAvailable,
 } from '../validation/roomValidators.js';
 import { ServiceError, ERRORS } from '../errors.js';
 
@@ -177,5 +179,35 @@ describe('validateActiveMatch', () => {
   test('passes when current match is active', () => {
     const room = { matches: [{ status: 'active' }], currentMatchIndex: 0 };
     assert.doesNotThrow(() => validateActiveMatch(room));
+  });
+});
+
+describe('validatePlayerInMatch', () => {
+  const room = {
+    matches: [{ team1: ['Alice', 'Bob'], team2: ['Carol', 'Dave'] }],
+    currentMatchIndex: 0,
+  };
+
+  test('throws 400 for player not in current match', () => {
+    assertServiceError(() => validatePlayerInMatch('Eve', room), 400, 'not in the current match');
+  });
+
+  test('passes for player in team1 or team2', () => {
+    assert.doesNotThrow(() => validatePlayerInMatch('Alice', room));
+    assert.doesNotThrow(() => validatePlayerInMatch('Dave', room));
+  });
+});
+
+describe('validateUndoAvailable', () => {
+  test('throws 409 when undo stack is empty', () => {
+    assertServiceError(() => validateUndoAvailable({ undoStack: [] }), 409);
+  });
+
+  test('throws 409 when undoStack is absent', () => {
+    assertServiceError(() => validateUndoAvailable({}), 409);
+  });
+
+  test('passes when undo stack has entries', () => {
+    assert.doesNotThrow(() => validateUndoAvailable({ undoStack: [{}] }));
   });
 });
