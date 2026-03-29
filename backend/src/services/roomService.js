@@ -3,12 +3,15 @@
  *
  * Handles: createRoom, joinRoom, getRoom, startSession, addMatches
  * Each function is an Express (req, res) handler.
+ *
+ * All DB calls are wrapped with withRetry (3 attempts, 300/600/900 ms delays).
+ * Version conflicts on startSession / addMatches are returned as 409 (client retries manually).
  */
 
 import { randomUUID } from 'crypto';
 import { getRepository, VersionConflictError } from '../db/index.js';
 import { generateMatches, calculateInitialRounds } from '../matchGen.js';
-import { safeRoom } from '../helpers.js';
+import { safeRoom, withRetry } from '../helpers.js';
 import {
   validateRoomExists,
   validateIsHost,
@@ -39,37 +42,37 @@ export async function createRoom(req, res) {
   do {
     code = String(Math.floor(1000 + Math.random() * 9000));
     if (++attempts > 20) return res.status(503).json({ error: 'Could not generate unique room code' });
-  } while (await db.getRoom(code));
+  } while (await withRetry(() => db.getRoom(code)));
 
   const token = randomUUID();
-  const room  = await db.createRoom({
+  const room  = await withRetry(() => db.createRoom({
     code, hostToken: token, format: 'doubles', started: false,
     players, matches: [], currentMatchIndex: 0,
     undoStack: [], operationLog: [], unavailablePlayers: [],
-  });
+  }));
 
   res.status(201).json({ hostToken: token, room: safeRoom(room) });
 }
 
 export async function joinRoom(req, res) {
   const { code } = req.params;
-  const room     = await db.getRoom(code);
+  const room     = await withRetry(() => db.getRoom(code));
 
   const invalid =
-    validateRoomExists(room)         ||
-    validateSessionNotStarted(room)  ||
-    validatePlayerNameRequired(req)  ||
+    validateRoomExists(room)        ||
+    validateSessionNotStarted(room) ||
+    validatePlayerNameRequired(req) ||
     validatePlayerNameNotTaken(req, room);
   if (invalid) return res.status(invalid.status).json({ error: invalid.error });
 
-  const updated = await db.addPlayer(
-    code, { name: req.body.playerName.trim(), gamesPlayed: 0 }, room.version
+  const updated = await withRetry(() =>
+    db.addPlayer(code, { name: req.body.playerName.trim(), gamesPlayed: 0 }, room.version)
   );
   res.status(200).json({ room: safeRoom(updated) });
 }
 
 export async function getRoom(req, res) {
-  const room    = await db.getRoom(req.params.code);
+  const room    = await withRetry(() => db.getRoom(req.params.code));
   const invalid = validateRoomExists(room);
   if (invalid) return res.status(invalid.status).json({ error: invalid.error });
 
@@ -78,7 +81,7 @@ export async function getRoom(req, res) {
 
 export async function startSession(req, res) {
   const { code } = req.params;
-  const room     = await db.getRoom(code);
+  const room     = await withRetry(() => db.getRoom(code));
 
   const invalid =
     validateRoomExists(room)        ||
@@ -91,7 +94,9 @@ export async function startSession(req, res) {
   if (matches.length) matches[0].status = 'active';
 
   try {
-    const updated = await db.startSession(code, matches, req.body.version ?? room.version);
+    const updated = await withRetry(() =>
+      db.startSession(code, matches, req.body.version ?? room.version)
+    );
     res.status(200).json({ room: safeRoom(updated) });
   } catch (e) {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: 'Version conflict — reload and retry' });
@@ -101,7 +106,7 @@ export async function startSession(req, res) {
 
 export async function addMatches(req, res) {
   const { code } = req.params;
-  const room     = await db.getRoom(code);
+  const room     = await withRetry(() => db.getRoom(code));
 
   const invalid = validateRoomExists(room) || validateIsHost(req, room);
   if (invalid) return res.status(invalid.status).json({ error: invalid.error });
@@ -111,7 +116,9 @@ export async function addMatches(req, res) {
   const newMatches = generateMatches(room.players, count, startId);
 
   try {
-    const updated = await db.appendMatches(code, newMatches, req.body.version ?? room.version);
+    const updated = await withRetry(() =>
+      db.appendMatches(code, newMatches, req.body.version ?? room.version)
+    );
     res.status(200).json({ room: safeRoom(updated) });
   } catch (e) {
     if (e instanceof VersionConflictError) return res.status(409).json({ error: 'Version conflict — reload and retry' });

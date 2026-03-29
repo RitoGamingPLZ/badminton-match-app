@@ -5,8 +5,8 @@
  * Each function is an Express (req, res) handler.
  */
 
-import { getRepository, VersionConflictError } from '../db/index.js';
-import { safeRoom } from '../helpers.js';
+import { getRepository } from '../db/index.js';
+import { safeRoom, withDirectTransaction } from '../helpers.js';
 import {
   validateRoomExists,
   validateIsHost,
@@ -20,37 +20,27 @@ const SSE_MAX_MS  = 10 * 60 * 1000;
 const SSE_POLL_MS = 2000;
 const SSE_PING_MS = 30 * 1000;
 
-export async function undoLastOperation(req, res) {
+export function undoLastOperation(req, res) {
   const { code } = req.params;
-  const room     = await db.getRoom(code);
 
-  const invalid =
-    validateRoomExists(room)     ||
-    validateIsHost(req, room)    ||
-    validateSessionStarted(room) ||
-    validateUndoAvailable(room);
-  if (invalid) return res.status(invalid.status).json({ error: invalid.error });
-
-  const undoStack    = room.undoStack;
-  const snapshot     = undoStack[undoStack.length - 1];
-  const newUndoStack = undoStack.slice(0, -1);
-  const operationLog = (room.operationLog || []).slice(0, -1);
-
-  try {
-    const updated = await db.saveState(code, {
-      matches:             snapshot.matches,
-      players:             snapshot.players,
-      currentMatchIndex:   snapshot.currentMatchIndex,
-      unavailablePlayers:  snapshot.unavailablePlayers ?? [],
-      undoStack:           newUndoStack,
-      operationLog,
-    }, req.body.version ?? room.version);
-    res.status(200).json({ room: safeRoom(updated) });
-  } catch (e) {
-    if (e instanceof VersionConflictError)
-      return res.status(409).json({ error: 'Version conflict — reload and retry' });
-    throw e;
-  }
+  return withDirectTransaction(db, code, req, res,
+    (req, room) =>
+      validateRoomExists(room)     ||
+      validateIsHost(req, room)    ||
+      validateSessionStarted(room) ||
+      validateUndoAvailable(room),
+    (req, room) => {
+      const snapshot     = room.undoStack[room.undoStack.length - 1];
+      return {
+        matches:             snapshot.matches,
+        players:             snapshot.players,
+        currentMatchIndex:   snapshot.currentMatchIndex,
+        unavailablePlayers:  snapshot.unavailablePlayers ?? [],
+        undoStack:           room.undoStack.slice(0, -1),
+        operationLog:        (room.operationLog || []).slice(0, -1),
+      };
+    },
+  );
 }
 
 export async function sseEvents(req, res) {
