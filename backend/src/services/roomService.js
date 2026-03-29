@@ -9,12 +9,22 @@ import { randomUUID } from 'crypto';
 import { getRepository, VersionConflictError } from '../db/index.js';
 import { generateMatches, calculateInitialRounds } from '../matchGen.js';
 import { safeRoom } from '../helpers.js';
+import {
+  validateRoomExists,
+  validateIsHost,
+  validateSessionNotStarted,
+  validateMinPlayers,
+  validatePlayerNameRequired,
+  validatePlayerNameNotTaken,
+} from '../validation/index.js';
 
 const db = getRepository();
 
 export async function createRoom(req, res) {
+  const invalid = validatePlayerNameRequired(req);
+  if (invalid) return res.status(invalid.status).json({ error: invalid.error });
+
   const { playerName, additionalPlayers = [] } = req.body;
-  if (!playerName?.trim()) return res.status(400).json({ error: 'playerName is required' });
 
   const seen    = new Set([playerName.trim().toLowerCase()]);
   const players = [{ name: playerName.trim(), gamesPlayed: 0 }];
@@ -43,36 +53,39 @@ export async function createRoom(req, res) {
 
 export async function joinRoom(req, res) {
   const { code } = req.params;
-  const { playerName } = req.body;
-  if (!playerName?.trim()) return res.status(400).json({ error: 'playerName is required' });
+  const room     = await db.getRoom(code);
 
-  const room = await db.getRoom(code);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
-  if (room.started) return res.status(409).json({ error: 'Session already started' });
+  const invalid =
+    validateRoomExists(room)         ||
+    validateSessionNotStarted(room)  ||
+    validatePlayerNameRequired(req)  ||
+    validatePlayerNameNotTaken(req, room);
+  if (invalid) return res.status(invalid.status).json({ error: invalid.error });
 
-  const nameTaken = room.players.some(
-    p => p.name.toLowerCase() === playerName.trim().toLowerCase()
+  const updated = await db.addPlayer(
+    code, { name: req.body.playerName.trim(), gamesPlayed: 0 }, room.version
   );
-  if (nameTaken) return res.status(409).json({ error: 'Name already taken in this room' });
-
-  const updated = await db.addPlayer(code, { name: playerName.trim(), gamesPlayed: 0 }, room.version);
   res.status(200).json({ room: safeRoom(updated) });
 }
 
 export async function getRoom(req, res) {
-  const room = await db.getRoom(req.params.code);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
+  const room    = await db.getRoom(req.params.code);
+  const invalid = validateRoomExists(room);
+  if (invalid) return res.status(invalid.status).json({ error: invalid.error });
+
   res.status(200).json({ room: safeRoom(room) });
 }
 
 export async function startSession(req, res) {
   const { code } = req.params;
-  const room = await db.getRoom(code);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
-  if (room.hostToken !== (req.headers['x-host-token'] || req.body?.hostToken || ''))
-    return res.status(403).json({ error: 'Not the host' });
-  if (room.started) return res.status(409).json({ error: 'Session already started' });
-  if (room.players.length < 4) return res.status(400).json({ error: 'Need at least 4 players for doubles' });
+  const room     = await db.getRoom(code);
+
+  const invalid =
+    validateRoomExists(room)        ||
+    validateIsHost(req, room)       ||
+    validateSessionNotStarted(room) ||
+    validateMinPlayers(room);
+  if (invalid) return res.status(invalid.status).json({ error: invalid.error });
 
   const matches = generateMatches(room.players, calculateInitialRounds(room.players.length), 1);
   if (matches.length) matches[0].status = 'active';
@@ -88,10 +101,10 @@ export async function startSession(req, res) {
 
 export async function addMatches(req, res) {
   const { code } = req.params;
-  const room = await db.getRoom(code);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
-  if (room.hostToken !== (req.headers['x-host-token'] || req.body?.hostToken || ''))
-    return res.status(403).json({ error: 'Not the host' });
+  const room     = await db.getRoom(code);
+
+  const invalid = validateRoomExists(room) || validateIsHost(req, room);
+  if (invalid) return res.status(invalid.status).json({ error: invalid.error });
 
   const count      = Math.min(req.body.count || 5, 20);
   const startId    = room.matches.length + 1;

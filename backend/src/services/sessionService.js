@@ -7,6 +7,12 @@
 
 import { getRepository, VersionConflictError } from '../db/index.js';
 import { safeRoom } from '../helpers.js';
+import {
+  validateRoomExists,
+  validateIsHost,
+  validateSessionStarted,
+  validateUndoAvailable,
+} from '../validation/index.js';
 
 const db = getRepository();
 
@@ -14,20 +20,18 @@ const SSE_MAX_MS  = 10 * 60 * 1000;
 const SSE_POLL_MS = 2000;
 const SSE_PING_MS = 30 * 1000;
 
-function getHostToken(req) {
-  return req.headers['x-host-token'] || req.body?.hostToken || '';
-}
-
 export async function undoLastOperation(req, res) {
   const { code } = req.params;
-  const room = await db.getRoom(code);
-  if (!room) return res.status(404).json({ error: 'Room not found' });
-  if (room.hostToken !== getHostToken(req)) return res.status(403).json({ error: 'Not the host' });
-  if (!room.started) return res.status(409).json({ error: 'Session not started' });
+  const room     = await db.getRoom(code);
 
-  const undoStack = room.undoStack || [];
-  if (!undoStack.length) return res.status(409).json({ error: 'Nothing to undo' });
+  const invalid =
+    validateRoomExists(room)     ||
+    validateIsHost(req, room)    ||
+    validateSessionStarted(room) ||
+    validateUndoAvailable(room);
+  if (invalid) return res.status(invalid.status).json({ error: invalid.error });
 
+  const undoStack    = room.undoStack;
   const snapshot     = undoStack[undoStack.length - 1];
   const newUndoStack = undoStack.slice(0, -1);
   const operationLog = (room.operationLog || []).slice(0, -1);
