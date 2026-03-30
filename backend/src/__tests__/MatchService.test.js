@@ -99,10 +99,12 @@ describe('MatchService.skipMatch', () => {
     }
   });
 
-  test('throws 403 for wrong host token', async () => {
+  test('succeeds without a host token (any player can self-skip)', async () => {
     const { room: current } = await roomService.getRoom(roomCode);
     const player = current.matches[0].team1[0];
-    await assertServiceError(() => matchService.skipMatch(roomCode, 'bad', player, roomVersion), 403);
+    // passing null token should not throw — skip no longer requires host
+    const { room } = await matchService.skipMatch(roomCode, null, player, roomVersion);
+    assert.equal(room.currentMatchIndex, 0);
   });
 });
 
