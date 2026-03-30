@@ -21,25 +21,18 @@
 
         <!-- Net line (center) -->
         <line x1="12" y1="90" x2="188" y2="90" stroke="white" stroke-width="3"/>
-        <!-- Net posts -->
-        <line x1="12" y1="85" x2="12" y2="95" stroke="white" stroke-width="2.5"/>
-        <line x1="188" y1="85" x2="188" y2="95" stroke="white" stroke-width="2.5"/>
 
         <!-- Short service lines -->
-        <line x1="12" y1="50" x2="188" y2="50" stroke="white" stroke-width="1" opacity="0.75"/>
-        <line x1="12" y1="130" x2="188" y2="130" stroke="white" stroke-width="1" opacity="0.75"/>
+        <line x1="12" y1="60" x2="188" y2="60" stroke="white" stroke-width="1" opacity="0.75"/>
+        <line x1="12" y1="120" x2="188" y2="120" stroke="white" stroke-width="1" opacity="0.75"/>
 
         <!-- Center service line (between service lines only) -->
-        <line x1="100" y1="50" x2="100" y2="130" stroke="white" stroke-width="1" opacity="0.75"/>
-
-        <!-- Back service lines (doubles) -->
-        <line x1="12" y1="16" x2="188" y2="16" stroke="white" stroke-width="1" opacity="0.5"/>
-        <line x1="12" y1="164" x2="188" y2="164" stroke="white" stroke-width="1" opacity="0.5"/>
+        <line x1="100" y1="60" x2="100" y2="120" stroke="white" stroke-width="1" opacity="0.75"/>
 
         <!-- Team labels -->
-        <text x="100" y="28" text-anchor="middle" fill="white" font-size="7" opacity="0.6"
+        <text x="100" y="37.5" text-anchor="middle" fill="white" font-size="7" opacity="0.6"
               font-family="sans-serif" font-weight="bold" letter-spacing="1.5">TEAM 1</text>
-        <text x="100" y="174" text-anchor="middle" fill="white" font-size="7" opacity="0.6"
+        <text x="100" y="150" text-anchor="middle" fill="white" font-size="7" opacity="0.6"
               font-family="sans-serif" font-weight="bold" letter-spacing="1.5">TEAM 2</text>
       </svg>
 
@@ -122,10 +115,6 @@
           @dragstart="onDragStart($event, 'bench', null, p.name)"
           @touchstart.passive="onTouchStart($event, 'bench', null, p.name)"
         >
-          <div
-            class="w-5 h-5 rounded-full text-white text-[0.65rem] font-bold flex items-center justify-center shrink-0"
-            :style="{ background: avatarColor(p.name) }"
-          >{{ p.name[0].toUpperCase() }}</div>
           {{ p.name }}
         </div>
         <span v-if="!benchPlayers.length" class="text-[0.78rem] text-slate-400 italic py-0.5 px-1">
@@ -197,8 +186,8 @@ onUnmounted(() => { if (autoSaveTimer) clearTimeout(autoSaveTimer) })
 
 // ── Sizing helpers (consistent with 90% aspect ratio court) ─────────────────
 const slotPositions = {
-  team1: [{ top: '24%', left: '27%' }, { top: '24%', left: '73%' }],
-  team2: [{ top: '68%', left: '27%' }, { top: '68%', left: '73%' }],
+  team1: [{ top: '30%', left: '27%' }, { top: '30%', left: '73%' }],
+  team2: [{ top: '75%', left: '27%' }, { top: '75%', left: '73%' }],
 }
 
 function slotWrapStyle(team, index) {
@@ -219,7 +208,7 @@ function slotCircleStyle(name) {
 const avatarInitialStyle = { fontSize: 'clamp(14px, 5vw, 22px)', fontWeight: '800', lineHeight: '1' }
 const nameLabelStyle = {
   marginTop: '4px',
-  fontSize: 'clamp(9px, 2.8vw, 12px)',
+  fontSize: 'clamp(12px, 3.6vw, 18px)',
   fontWeight: '700',
   color: 'white',
   textShadow: '0 1px 4px rgba(0,0,0,0.7)',
