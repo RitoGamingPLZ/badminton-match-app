@@ -45,19 +45,25 @@ export class MatchService {
     return this.#executeCommand(code, new MatchDoneCommand(winner), room, version ?? room.version);
   }
 
-  async skipMatch(code, token, playerName, version) {
+  async skipMatch(code, token, playerName, version, skipFrom = 'current') {
     const trimmedName = playerName?.trim() ?? '';
     validatePlayerName(trimmedName);
 
     const room = await withRetry(() => this.#db.getRoom(code));
     validateRoomExists(room);
-    validateIsHost(token, room);
     validateSessionStarted(room);
     validateActiveMatch(room);
 
-    validatePlayerInMatch(trimmedName, room);
+    const currentIdx  = room.currentMatchIndex;
+    const matchIndex  = skipFrom === 'next' ? currentIdx + 1 : currentIdx;
+    // current skip → sit out only this match (back next round)
+    // next skip    → sit out next match + one more (2 turns penalty)
+    const availableFrom = skipFrom === 'next' ? currentIdx + 3 : currentIdx + 1;
 
-    return this.#executeCommand(code, new SkipMatchCommand(trimmedName), room, version ?? room.version);
+    validateMatchExists(matchIndex, room);
+    validatePlayerInMatch(trimmedName, room, matchIndex);
+
+    return this.#executeCommand(code, new SkipMatchCommand(trimmedName, matchIndex, availableFrom), room, version ?? room.version);
   }
 
   async editMatch(code, token, matchIndex, team1, team2, version) {

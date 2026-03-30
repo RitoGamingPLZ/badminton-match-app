@@ -19,13 +19,20 @@ import { generateMatches } from '../matchGen.js';
 import { Command } from './Command.js';
 
 export class SkipMatchCommand extends Command {
-  constructor(playerName) {
+  /**
+   * @param {string} playerName
+   * @param {number} matchIndex     - which match index to skip from (defaults to currentMatchIndex)
+   * @param {number} availableFrom  - match index from which the player can play again
+   */
+  constructor(playerName, matchIndex, availableFrom) {
     super();
-    this.playerName = playerName;
+    this.playerName    = playerName;
+    this.matchIndex    = matchIndex;
+    this.availableFrom = availableFrom;
   }
 
   execute(room) {
-    const idx         = room.currentMatchIndex;
+    const idx         = this.matchIndex ?? room.currentMatchIndex;
     const match       = room.matches[idx];
     const { playerName } = this;
 
@@ -37,9 +44,10 @@ export class SkipMatchCommand extends Command {
     );
 
     // Add the skipping player to the queue
+    const availableFrom = this.availableFrom ?? (idx + 1);
     const newUnavailablePlayers = [
       ...(room.unavailablePlayers ?? []),
-      { name: playerName, availableFrom: idx + 1 },
+      { name: playerName, availableFrom },
     ];
 
     // Bench = in room, not on court, not already unavailable (and not the skipper)

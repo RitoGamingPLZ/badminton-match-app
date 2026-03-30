@@ -89,34 +89,39 @@ describe('MatchDoneCommand', () => {
   });
 });
 
+// Helper: skip from current match (index 0, available from 1)
+const skipCurrent = (name, room) => new SkipMatchCommand(name, 0, 1).execute(room);
+
 describe('SkipMatchCommand — no bench player', () => {
   // 4-player room: all on court, no bench available
 
   test('keeps match active (does not skip or advance index)', () => {
-    const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
+    const { patch } = skipCurrent('Alice', makeRoom());
     assert.equal(patch.matches[0].status, 'active');
     assert.equal(patch.currentMatchIndex, undefined); // index does not advance
   });
 
   test('removes skipping player from their team', () => {
-    const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
+    const { patch } = skipCurrent('Alice', makeRoom());
     assert.ok(!patch.matches[0].team1.includes('Alice'));
     assert.ok(!patch.matches[0].team2.includes('Alice'));
   });
 
   test('remaining players stay in their teams', () => {
-    const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
+    const { patch } = skipCurrent('Alice', makeRoom());
     // Bob was in team1 with Alice — he should still be there
     assert.ok(patch.matches[0].team1.includes('Bob') || patch.matches[0].team2.includes('Bob'));
   });
 
-  test('adds skipping player to unavailable queue', () => {
-    const { patch } = new SkipMatchCommand('Alice').execute(makeRoom());
-    assert.ok(patch.unavailablePlayers.some(p => p.name === 'Alice'));
+  test('adds skipping player to unavailable queue with correct availableFrom', () => {
+    const { patch } = skipCurrent('Alice', makeRoom());
+    const entry = patch.unavailablePlayers.find(p => p.name === 'Alice');
+    assert.ok(entry);
+    assert.equal(entry.availableFrom, 1);
   });
 
   test('returns a player_skipped log entry', () => {
-    const { logEntry } = new SkipMatchCommand('Alice').execute(makeRoom());
+    const { logEntry } = skipCurrent('Alice', makeRoom());
     assert.equal(logEntry.type, 'player_skipped');
     assert.ok(logEntry.description.includes('Alice'));
   });
@@ -135,21 +140,44 @@ describe('SkipMatchCommand — bench player available', () => {
   });
 
   test('substitutes bench player and keeps match active (no index advance)', () => {
-    const { patch } = new SkipMatchCommand('Alice').execute(roomWith5);
+    const { patch } = skipCurrent('Alice', roomWith5);
     assert.equal(patch.matches[0].status, 'active');
     assert.equal(patch.currentMatchIndex, undefined); // no advancement
   });
 
   test('bench player appears in the regenerated match', () => {
-    const { patch } = new SkipMatchCommand('Alice').execute(roomWith5);
+    const { patch } = skipCurrent('Alice', roomWith5);
     const allInMatch = [...patch.matches[0].team1, ...patch.matches[0].team2];
     assert.ok(allInMatch.includes('Eve'), 'Eve should substitute in');
     assert.ok(!allInMatch.includes('Alice'), 'Alice should be removed');
   });
 
   test('adds skipping player to unavailable queue', () => {
-    const { patch } = new SkipMatchCommand('Alice').execute(roomWith5);
+    const { patch } = skipCurrent('Alice', roomWith5);
     assert.ok(patch.unavailablePlayers.some(p => p.name === 'Alice'));
+  });
+});
+
+describe('SkipMatchCommand — next match skip', () => {
+  // Skip from next match (index 1), availableFrom = 3 (2 turn penalty)
+  const skipNext = (name, room) => new SkipMatchCommand(name, 1, 3).execute(room);
+
+  test('operates on the next match, not the current one', () => {
+    const room = makeRoom();
+    const { patch } = skipNext('Alice', room);
+    // current match (0) is unchanged — same team composition
+    assert.deepEqual(patch.matches[0].team1, room.matches[0].team1);
+    assert.deepEqual(patch.matches[0].team2, room.matches[0].team2);
+    // next match (1) has Alice removed
+    assert.ok(!patch.matches[1].team1.includes('Alice'));
+    assert.ok(!patch.matches[1].team2.includes('Alice'));
+  });
+
+  test('sets availableFrom to currentMatchIndex + 3 (2 turn penalty)', () => {
+    const { patch } = skipNext('Alice', makeRoom());
+    const entry = patch.unavailablePlayers.find(p => p.name === 'Alice');
+    assert.ok(entry);
+    assert.equal(entry.availableFrom, 3);
   });
 });
 

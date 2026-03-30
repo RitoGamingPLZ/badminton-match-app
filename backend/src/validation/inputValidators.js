@@ -46,8 +46,10 @@ export function validateMatchEditable(matchIndex, room) {
     throw new ServiceError(409, ERRORS.MATCH_NOT_EDITABLE);
 }
 
-export function validatePlayerInMatch(playerName, room) {
-  const match      = room.matches[room.currentMatchIndex];
+export function validatePlayerInMatch(playerName, room, matchIndex) {
+  const idx        = matchIndex ?? room.currentMatchIndex;
+  const match      = room.matches[idx];
+  if (!match) throw new ServiceError(400, matchNotFound(idx));
   const allPlayers = new Set([...match.team1, ...match.team2]);
   if (!allPlayers.has(playerName)) throw new ServiceError(400, playerNotInMatch(playerName));
 }
