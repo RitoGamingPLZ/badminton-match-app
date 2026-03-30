@@ -219,7 +219,7 @@ const nameLabelStyle = {
 
 function displayName(name) {
   if (!name) return 'Empty'
-  return name.length > 6 ? name.slice(0, 5) + '…' : name
+  return name.length > 8 ? name.slice(0, 8) : name
 }
 
 // ── Mouse drag state ─────────────────────────────────────────────────────────
