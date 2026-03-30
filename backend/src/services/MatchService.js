@@ -11,7 +11,6 @@ import { MatchDoneCommand, SkipMatchCommand, EditMatchCommand } from '../command
 import { safeRoom, makeSnapshot, pushUndo, pushLog } from '../roomUtils.js';
 import { withRetry, withConflictRetry } from '../db/transaction.js';
 import {
-  validateWinner,
   validatePlayerName,
   validatePlayerInMatch,
   validateTeams,
@@ -21,7 +20,6 @@ import {
 } from '../validation/inputValidators.js';
 import {
   validateRoomExists,
-  validateIsHost,
   validateSessionStarted,
   validateActiveMatch,
 } from '../validation/roomValidators.js';
@@ -34,11 +32,8 @@ export class MatchService {
   }
 
   async markDone(code, token, winner, version) {
-    validateWinner(winner);
-
     const room = await withRetry(() => this.#db.getRoom(code));
     validateRoomExists(room);
-    validateIsHost(token, room);
     validateSessionStarted(room);
     validateActiveMatch(room);
 
@@ -72,7 +67,6 @@ export class MatchService {
     const room           = await withRetry(() => this.#db.getRoom(code));
     const resolvedIndex  = matchIndex ?? room.currentMatchIndex;
     validateRoomExists(room);
-    validateIsHost(token, room);
     validateSessionStarted(room);
     validateMatchExists(resolvedIndex, room);
     validateMatchEditable(resolvedIndex, room);

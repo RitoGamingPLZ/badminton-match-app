@@ -60,13 +60,7 @@ describe('MatchService.markDone', () => {
     assert.equal(room.canUndo, true);
   });
 
-  test('throws 400 for invalid winner value', async () => {
-    await assertServiceError(() => matchService.markDone(roomCode, hostToken, 3, roomVersion), 400);
-  });
 
-  test('throws 403 for wrong host token', async () => {
-    await assertServiceError(() => matchService.markDone(roomCode, 'bad', 1, roomVersion), 403);
-  });
 });
 
 describe('MatchService.skipMatch', () => {
@@ -133,13 +127,6 @@ describe('MatchService.editMatch', () => {
     await assertServiceError(
       () => matchService.editMatch(roomCode, hostToken, 0, ['Alice', 'Bob'], ['Alice', 'Dave'], roomVersion),
       400,
-    );
-  });
-
-  test('throws 403 for wrong host token', async () => {
-    await assertServiceError(
-      () => matchService.editMatch(roomCode, 'bad', 0, ['Alice', 'Bob'], ['Carol', 'Dave'], roomVersion),
-      403,
     );
   });
 

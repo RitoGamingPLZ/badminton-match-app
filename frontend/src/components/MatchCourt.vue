@@ -140,7 +140,7 @@ const props = defineProps({
   players:  { type: Array,   default: () => [] },
 })
 
-const emit = defineEmits(['save'])
+const emit = defineEmits(['save', 'skip'])
 
 // Local editable copies of teams (null = empty slot)
 const localTeam1 = ref([...props.match.team1])
@@ -230,6 +230,7 @@ function onDragStart(event, team, index, nameOverride) {
   const name = nameOverride ?? (team === 'team1' ? localTeam1.value[index] : localTeam2.value[index])
   dragPayload = { team, index, name }
   event.dataTransfer.effectAllowed = 'move'
+  if (name) event.dataTransfer.setData('text/plain', name)
 }
 
 function onDrop(event, targetTeam, targetIndex) {
@@ -332,10 +333,13 @@ function onTouchEnd(event) {
   const touch = event.changedTouches[0]
   const el = document.elementFromPoint(touch.clientX, touch.clientY)
 
-  const slotEl  = el?.closest('[data-slot]')
-  const benchEl = el?.closest('[data-bench]')
+  const slotEl     = el?.closest('[data-slot]')
+  const benchEl    = el?.closest('[data-bench]')
+  const skipZoneEl = el?.closest('[data-skipzone]')
 
-  if (slotEl) {
+  if (skipZoneEl) {
+    emit('skip', touchPayload.name)
+  } else if (slotEl) {
     const [targetTeam, idxStr] = slotEl.dataset.slot.split('-')
     performDrop(touchPayload, targetTeam, parseInt(idxStr))
     scheduleAutoSave()
