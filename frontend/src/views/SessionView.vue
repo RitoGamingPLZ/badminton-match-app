@@ -65,18 +65,36 @@
         Waiting for host to record result…
       </p>
 
-      <!-- Skip MY turn — visible to all players (host + client) if in current or next match -->
-      <div v-if="mySkipOptions.length" class="mt-3 pt-3 border-t border-slate-200">
-        <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mb-1.5">Skip My Turn</div>
-        <div class="flex gap-2">
-          <button
-            v-for="opt in mySkipOptions"
-            :key="opt.skipFrom"
-            class="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-amber-50 border-2 border-amber-400 text-amber-700 rounded-xl font-semibold text-[0.82rem] cursor-pointer hover:bg-amber-100 active:scale-[0.97] transition-all"
-            @click="store.skipMatch(store.myName, opt.skipFrom)"
+      <!-- Skip zone — visible when player is in current or next match -->
+      <div v-if="mySkipType" class="mt-3 pt-3 border-t border-slate-200">
+        <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mb-2">Drag your name to skip</div>
+        <div class="flex items-center gap-3">
+          <!-- Draggable player chip -->
+          <div
+            class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border-2 border-slate-200 bg-slate-50 text-[0.82rem] font-semibold text-slate-700 cursor-grab active:cursor-grabbing select-none shrink-0"
+            draggable="true"
+            @dragstart="onSkipDragStart"
+            @dragend="onSkipDragEnd"
+            @touchstart.passive="onSkipTouchStart"
           >
-            <span>⏭</span> {{ opt.label }}
-          </button>
+            <div
+              class="w-5 h-5 rounded-full text-white text-[0.65rem] font-bold flex items-center justify-center shrink-0"
+              :style="{ background: avatarColor(store.myName) }"
+            >{{ store.myName[0].toUpperCase() }}</div>
+            {{ store.myName }}
+          </div>
+          <!-- Drop zone -->
+          <div
+            data-skipzone="true"
+            class="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl border-2 border-dashed text-[0.82rem] font-semibold transition-all"
+            :class="isOverSkipZone ? 'border-amber-500 bg-amber-100 text-amber-700' : 'border-amber-300 bg-amber-50 text-amber-500'"
+            @dragover.prevent="isOverSkipZone = true"
+            @dragleave="isOverSkipZone = false"
+            @drop.prevent="onSkipDrop"
+          >
+            <span>⏭</span>
+            {{ mySkipType === 'current' ? 'Skip current match' : 'Skip next match' }}
+          </div>
         </div>
       </div>
     </div>
@@ -180,25 +198,25 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoomStore } from '../store/room.js'
 import MatchCourt from '../components/MatchCourt.vue'
+import { avatarColor } from '../utils.js'
 
 const store = useRoomStore()
 
-const showHistory = ref(false)
-const showFinish  = ref(false)
+const showHistory    = ref(false)
+const showFinish     = ref(false)
+const isOverSkipZone = ref(false)
+let skipGhostEl = null
 
-const mySkipOptions = computed(() => {
-  if (!store.myName || !store.currentMatch) return []
-  const opts = []
-  const cur  = store.currentMatch
+const mySkipType = computed(() => {
+  if (!store.myName || !store.currentMatch) return null
+  const inCurrent = [...store.currentMatch.team1, ...store.currentMatch.team2].includes(store.myName)
+  if (inCurrent) return 'current'
   const next = store.upcomingMatches[0]
-  const inCurrent = [...cur.team1, ...cur.team2].includes(store.myName)
-  const inNext    = next ? [...next.team1, ...next.team2].includes(store.myName) : false
-  if (inCurrent) opts.push({ label: 'Skip Current', skipFrom: 'current' })
-  if (inNext)    opts.push({ label: 'Skip Next Match', skipFrom: 'next' })
-  return opts
+  const inNext = next ? [...next.team1, ...next.team2].includes(store.myName) : false
+  return inNext ? 'next' : null
 })
 
 const actions = computed(() => [
@@ -234,4 +252,67 @@ function formatTime(ts) {
   if (!ts) return ''
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
+
+// ── Skip zone drag (desktop) ─────────────────────────────────────────────────
+function onSkipDragStart(e) {
+  e.dataTransfer.effectAllowed = 'move'
+}
+function onSkipDragEnd() {
+  isOverSkipZone.value = false
+}
+function onSkipDrop() {
+  isOverSkipZone.value = false
+  if (!mySkipType.value) return
+  store.skipMatch(store.myName, mySkipType.value)
+}
+
+// ── Skip zone drag (touch) ───────────────────────────────────────────────────
+function onSkipTouchStart(event) {
+  const name = store.myName
+  skipGhostEl = document.createElement('div')
+  const size  = Math.round(Math.min(window.innerWidth, 480) * 0.14)
+  const touch = event.touches[0]
+  Object.assign(skipGhostEl.style, {
+    position: 'fixed', width: size + 'px', height: size + 'px',
+    borderRadius: '50%', background: avatarColor(name),
+    color: 'white', fontWeight: '800', fontSize: Math.round(size * 0.42) + 'px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    pointerEvents: 'none', zIndex: '9999', opacity: '0.85',
+    transform: 'translate(-50%, -50%)',
+    left: touch.clientX + 'px', top: touch.clientY + 'px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.35)',
+  })
+  skipGhostEl.textContent = name[0].toUpperCase()
+  document.body.appendChild(skipGhostEl)
+}
+
+function onSkipTouchMove(event) {
+  if (!skipGhostEl) return
+  event.preventDefault()
+  const touch = event.touches[0]
+  skipGhostEl.style.left = touch.clientX + 'px'
+  skipGhostEl.style.top  = touch.clientY + 'px'
+  const el = document.elementFromPoint(touch.clientX, touch.clientY)
+  isOverSkipZone.value = !!el?.closest('[data-skipzone]')
+}
+
+function onSkipTouchEnd(event) {
+  if (skipGhostEl) { skipGhostEl.remove(); skipGhostEl = null }
+  const touch = event.changedTouches[0]
+  const el = document.elementFromPoint(touch.clientX, touch.clientY)
+  isOverSkipZone.value = false
+  if (el?.closest('[data-skipzone]') && mySkipType.value) {
+    store.skipMatch(store.myName, mySkipType.value)
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('touchmove', onSkipTouchMove, { passive: false })
+  document.addEventListener('touchend', onSkipTouchEnd)
+})
+onUnmounted(() => {
+  document.removeEventListener('touchmove', onSkipTouchMove)
+  document.removeEventListener('touchend', onSkipTouchEnd)
+  if (skipGhostEl) { skipGhostEl.remove(); skipGhostEl = null }
+})
 </script>
