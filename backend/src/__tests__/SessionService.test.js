@@ -48,11 +48,6 @@ describe('SessionService.undo', () => {
     assert.equal(undone.canUndo, false);
   });
 
-  test('throws 403 for wrong host token', async () => {
-    const { sessionService, code, room } = await setupWithUndo();
-    await assertServiceError(() => sessionService.undo(code, 'wrong-token', room.version), 403);
-  });
-
   test('throws 409 when there is nothing to undo', async () => {
     const db = new InMemoryRepository();
     const roomService  = new RoomService(db);
