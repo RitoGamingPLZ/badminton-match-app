@@ -26,7 +26,7 @@ export class MongoRepository {
     this.#client = new MongoClient(uri, {
       serverSelectionTimeoutMS: 5000,
       connectTimeoutMS: 10000,
-      maxPoolSize: 10,
+      maxPoolSize: 100,
     });
     this.#dbName  = dbName || 'badminton';
   }
