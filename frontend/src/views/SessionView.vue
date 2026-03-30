@@ -40,20 +40,6 @@
 
       <!-- Host controls -->
       <template v-if="store.isHost">
-        <!-- Skip a player -->
-        <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mt-4 mb-1.5">Skip a player</div>
-        <div class="grid grid-cols-4 gap-1.5">
-          <button
-            v-for="name in currentMatchPlayers"
-            :key="name"
-            class="flex flex-col items-center gap-0.5 py-2.5 px-1 rounded-xl border-2 border-slate-200 bg-white text-[0.7rem] font-semibold text-slate-500 cursor-pointer transition-all hover:border-amber-500 hover:text-amber-600 hover:bg-amber-50 active:scale-[0.97]"
-            @click="store.skipMatch(name)"
-          >
-            <span class="text-[1.1rem]">⏭</span>
-            <span class="truncate w-full text-center">{{ name }}</span>
-          </button>
-        </div>
-
         <button
           class="w-full mt-4 py-3 bg-green-600 text-white rounded-xl font-bold text-[0.95rem] cursor-pointer hover:bg-green-700 active:scale-[0.98] transition-all"
           @click="store.markMatchDone(null)"
@@ -78,6 +64,21 @@
       <p v-else class="text-center text-slate-500 text-[0.82rem] mt-3">
         Waiting for host to record result…
       </p>
+
+      <!-- Skip MY turn — visible to all players (host + client) if in current or next match -->
+      <div v-if="mySkipOptions.length" class="mt-3 pt-3 border-t border-slate-200">
+        <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mb-1.5">Skip My Turn</div>
+        <div class="flex gap-2">
+          <button
+            v-for="opt in mySkipOptions"
+            :key="opt.skipFrom"
+            class="flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 bg-amber-50 border-2 border-amber-400 text-amber-700 rounded-xl font-semibold text-[0.82rem] cursor-pointer hover:bg-amber-100 active:scale-[0.97] transition-all"
+            @click="store.skipMatch(store.myName, opt.skipFrom)"
+          >
+            <span>⏭</span> {{ opt.label }}
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- All done -->
@@ -188,10 +189,16 @@ const store = useRoomStore()
 const showHistory = ref(false)
 const showFinish  = ref(false)
 
-const currentMatchPlayers = computed(() => {
-  const m = store.currentMatch
-  if (!m) return []
-  return [...m.team1, ...m.team2]
+const mySkipOptions = computed(() => {
+  if (!store.myName || !store.currentMatch) return []
+  const opts = []
+  const cur  = store.currentMatch
+  const next = store.upcomingMatches[0]
+  const inCurrent = [...cur.team1, ...cur.team2].includes(store.myName)
+  const inNext    = next ? [...next.team1, ...next.team2].includes(store.myName) : false
+  if (inCurrent) opts.push({ label: 'Skip Current', skipFrom: 'current' })
+  if (inNext)    opts.push({ label: 'Skip Next Match', skipFrom: 'next' })
+  return opts
 })
 
 const actions = computed(() => [

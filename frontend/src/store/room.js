@@ -165,11 +165,11 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
-  async function skipMatch(playerName) {
+  async function skipMatch(playerName, skipFrom = 'current') {
     clearError()
     try {
       const { room: updated } = await api.skipMatch(
-        roomCode.value, playerName, room.value.version, hostToken.value
+        roomCode.value, playerName, room.value.version, skipFrom
       )
       room.value = updated
     } catch (e) {

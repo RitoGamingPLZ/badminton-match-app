@@ -11,8 +11,8 @@ export const markMatchDone = wrapRoute(req => {
 });
 
 export const skipMatch = wrapRoute(req => {
-  const { playerName, version } = req.body || {};
-  return matchService.skipMatch(req.params.code, hostToken(req), playerName, version);
+  const { playerName, version, skipFrom } = req.body || {};
+  return matchService.skipMatch(req.params.code, null, playerName, version, skipFrom);
 });
 
 export const editMatch = wrapRoute(req => {
