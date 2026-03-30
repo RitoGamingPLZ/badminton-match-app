@@ -9,7 +9,6 @@ import { ServiceError, ERRORS } from '../errors.js';
 import { withRetry, withConflictRetry, sleep } from '../db/transaction.js';
 import {
   validateRoomExists,
-  validateIsHost,
   validateSessionStarted,
   validateUndoAvailable,
 } from '../validation/roomValidators.js';
@@ -28,7 +27,6 @@ export class SessionService {
   async undo(code, token, version) {
     const room = await withRetry(() => this.#db.getRoom(code));
     validateRoomExists(room);
-    validateIsHost(token, room);
     validateSessionStarted(room);
     validateUndoAvailable(room);
 
