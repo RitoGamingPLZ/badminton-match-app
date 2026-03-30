@@ -23,7 +23,11 @@ export class MongoRepository {
   #initialized = false;
 
   constructor(uri, dbName) {
-    this.#client = new MongoClient(uri);
+    this.#client = new MongoClient(uri, {
+      serverSelectionTimeoutMS: 5000,
+      connectTimeoutMS: 10000,
+      maxPoolSize: 10,
+    });
     this.#dbName  = dbName || 'badminton';
   }
 
