@@ -31,7 +31,12 @@
         </div>
       </div>
 
-      <MatchCourt :match="store.currentMatch" />
+      <MatchCourt
+        :match="store.currentMatch"
+        :editable="store.isHost"
+        :players="store.room?.players ?? []"
+        @save="onCourtSave"
+      />
 
       <!-- Host controls -->
       <template v-if="store.isHost">
@@ -49,17 +54,10 @@
           </button>
         </div>
 
-        <div class="text-[0.72rem] font-bold uppercase tracking-[0.8px] text-slate-500 mt-4 mb-1.5">Who won?</div>
-        <div class="flex gap-2">
-          <button
-            class="flex-1 py-2.5 px-4 bg-green-600 text-white rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-green-700 active:scale-[0.97] transition-all"
-            @click="store.markMatchDone(1)"
-          >{{ store.currentMatch.team1.join(' & ') }}</button>
-          <button
-            class="flex-1 py-2.5 px-4 bg-transparent text-green-600 border-2 border-green-600 rounded-lg font-semibold text-[0.85rem] cursor-pointer hover:bg-green-100 active:scale-[0.97] transition-all"
-            @click="store.markMatchDone(2)"
-          >{{ store.currentMatch.team2.join(' & ') }}</button>
-        </div>
+        <button
+          class="w-full mt-4 py-3 bg-green-600 text-white rounded-xl font-bold text-[0.95rem] cursor-pointer hover:bg-green-700 active:scale-[0.98] transition-all"
+          @click="store.markMatchDone(null)"
+        >Next Match →</button>
 
         <!-- Action buttons -->
         <div class="grid grid-cols-3 gap-1.5 mt-3">
@@ -213,6 +211,10 @@ const actions = computed(() => [
     disabled: false, active: showHistory.value,
   },
 ])
+
+async function onCourtSave(team1, team2) {
+  await store.editMatch(store.room.currentMatchIndex, team1, team2)
+}
 
 function historyIcon(type) {
   if (type === 'match_done')    return '✅'

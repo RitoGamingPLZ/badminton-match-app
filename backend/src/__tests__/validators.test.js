@@ -59,15 +59,16 @@ describe('validatePlayerNotTaken', () => {
 });
 
 describe('validateWinner', () => {
-  test('throws 400 for values other than 1 or 2', () => {
+  test('throws 400 for values other than 1, 2, or null', () => {
     assertServiceError(() => validateWinner(0), 400);
     assertServiceError(() => validateWinner(3), 400);
-    assertServiceError(() => validateWinner(null), 400);
+    assertServiceError(() => validateWinner('1'), 400);
   });
 
-  test('passes for 1 and 2', () => {
+  test('passes for 1, 2, and null (null = advance without recording result)', () => {
     assert.doesNotThrow(() => validateWinner(1));
     assert.doesNotThrow(() => validateWinner(2));
+    assert.doesNotThrow(() => validateWinner(null));
   });
 });
 

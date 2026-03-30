@@ -17,7 +17,8 @@ export function validatePlayerNotTaken(name, room) {
 }
 
 export function validateWinner(winner) {
-  if (winner !== 1 && winner !== 2) throw new ServiceError(400, ERRORS.WINNER_INVALID);
+  if (winner !== null && winner !== 1 && winner !== 2)
+    throw new ServiceError(400, ERRORS.WINNER_INVALID);
 }
 
 export function validateTeams(team1, team2) {

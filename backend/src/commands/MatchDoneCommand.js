@@ -9,7 +9,7 @@ import { Command } from './Command.js';
 export class MatchDoneCommand extends Command {
   constructor(winner) {
     super();
-    this.winner = winner; // 1 | 2
+    this.winner = winner; // 1 | 2 | null (null = advance without recording result)
   }
 
   execute(room) {
@@ -34,8 +34,8 @@ export class MatchDoneCommand extends Command {
       p => p.availableFrom > nextIdx
     );
 
-    const winnerNames = this.winner === 1 ? match.team1 : match.team2;
-    const loserNames  = this.winner === 1 ? match.team2 : match.team1;
+    const winnerNames = this.winner === 1 ? match.team1 : this.winner === 2 ? match.team2 : null;
+    const loserNames  = this.winner === 1 ? match.team2 : this.winner === 2 ? match.team1 : null;
 
     return {
       patch: {
@@ -47,7 +47,9 @@ export class MatchDoneCommand extends Command {
       logEntry: {
         type:        'match_done',
         matchNum:    idx + 1,
-        description: `Match ${idx + 1}: ${winnerNames.join(' & ')} beat ${loserNames.join(' & ')}`,
+        description: winnerNames
+          ? `Match ${idx + 1}: ${winnerNames.join(' & ')} beat ${loserNames.join(' & ')}`
+          : `Match ${idx + 1}: completed`,
       },
     };
   }

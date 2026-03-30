@@ -77,6 +77,16 @@ describe('MatchDoneCommand', () => {
     assert.ok(logEntry.description.includes('Carol'));
     assert.ok(logEntry.description.includes('Dave'));
   });
+
+  test('winner=null advances match without recording a winner', () => {
+    const { patch, logEntry } = new MatchDoneCommand(null).execute(makeRoom());
+    assert.equal(patch.matches[0].status, 'done');
+    assert.equal(patch.matches[0].winner, null);
+    assert.equal(patch.currentMatchIndex, 1);
+    assert.equal(logEntry.type, 'match_done');
+    assert.ok(logEntry.description.includes('completed'));
+    assert.ok(!logEntry.description.includes('beat'));
+  });
 });
 
 describe('SkipMatchCommand — no bench player', () => {
